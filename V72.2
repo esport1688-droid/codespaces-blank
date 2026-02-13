@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, Component, memo, useRef } from 'react';
-// ✅ [V72.2 FINAL] 完整引入圖示
 import { 
   Calendar, MapPin, User, Phone, Clock, 
   CheckCircle, Plus, Share2, ArrowRight, 
@@ -10,7 +9,7 @@ import {
   Zap, Trash2, Briefcase, DollarSign, 
   Settings, FileText, Search, Award, Loader2, LogOut, UserCog, Star, Trophy, Heart, ZapOff, Link as LinkIcon, RefreshCw, Database, Download, Cloud, Shield,
   Check, Ruler, Activity, PenTool, ThumbsUp, ArrowUpDown, Package, Server, Info, CreditCard, ToggleLeft, Hammer, Sparkles, Box, Leaf, Printer,
-  HelpCircle, ChevronDown, ChevronUp, Upload, Image as ImageIcon, Eraser, Camera, Gift
+  HelpCircle, ChevronDown, ChevronUp, Upload, Image as ImageIcon, Eraser, Camera, Gift, Eye
 } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
@@ -23,7 +22,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 // 1. 系統全域設定與常數
 // =======================================================================
 
-const SYSTEM_VERSION = "V72.2 Ultimate Fix"; 
+const SYSTEM_VERSION = "V73.2 Fix Delete Btn"; 
 const COMPANY_NAME = "DEPower"; 
 const COMPANY_FULL_NAME = "崧象智能 DEPower";
 const COMPANY_SUBTITLE = "崧象智能"; 
@@ -151,7 +150,7 @@ const CountUp = ({ end, duration = 2000, onComplete }) => {
   return <>{count}</>;
 };
 
-const compressImage = (file, maxWidth = 800, quality = 0.6) => {
+const compressImage = (file, maxWidth = 1024, quality = 0.7) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -203,29 +202,23 @@ const normalizeOrderData = (id, data) => {
         const safeProjectAmount = data.projectAmount ? String(data.projectAmount).replace(/[^\d]/g, '') : '';
         const safePaidAmount = data.paidAmount ? String(data.paidAmount).replace(/[^\d]/g, '') : '';
          
-        const safeOrderNumber = data.orderNumber !== undefined && data.orderNumber !== null ? String(data.orderNumber).trim() : "N/A";
-        const safeStatus = data.status ? String(data.status) : "待場勘 (客戶預約)";
-        const safeClientName = data.clientName ? String(data.clientName) : "未命名客戶";
-        const safePhone = (data.phone !== undefined && data.phone !== null) ? String(data.phone) : ""; 
-        const safeServiceType = data.serviceType ? String(data.serviceType) : SERVICE_TYPES[0];
-        const safeDate = data.date ? String(data.date) : "";
-        const safeTime = data.time ? String(data.time) : "";
-        const safeAddress = data.address ? String(data.address) : "";
-        const safeCity = data.city ? String(data.city) : "";
-        const safeNotes = data.notes ? String(data.notes) : "";
-        const safeSalesName = data.salesName ? String(data.salesName) : "";
-        const safeKolName = data.kolName ? String(data.kolName) : "";
-        const safePaymentMethod = data.paymentMethod ? String(data.paymentMethod) : "";
-        const safeTouSetting = data.touSetting ? String(data.touSetting) : "";
-        const safeWireGauge = data.wireGauge ? String(data.wireGauge) : "";
-        const safeGwLength = data.gwLength ? String(data.gwLength) : "";
-        const safePwLength = data.pwLength ? String(data.pwLength) : "";
-        const safeWarrantyDate = data.warrantyStartDate ? String(data.warrantyStartDate) : "";
-        
-        const safePlanningImage = data.planningImage ? String(data.planningImage) : "";
-        const safeCompletionImage = data.completionImage ? String(data.completionImage) : "";
-        const safeClientSignature = data.clientSignature ? String(data.clientSignature) : "";
-        const safeSignedAt = data.signedAt ? data.signedAt : null;
+        // --- 圖片處理核心邏輯 (支援多圖) ---
+        let safePlanningImages = [];
+        if (Array.isArray(data.planningImages)) {
+            safePlanningImages = data.planningImages;
+        } else if (data.planningImage) {
+            // 如果只有舊版單張圖，轉為陣列，保持相容
+            safePlanningImages = [data.planningImage];
+        }
+
+        let safeCompletionImages = [];
+        if (Array.isArray(data.completionImages)) {
+            safeCompletionImages = data.completionImages;
+        } else if (data.completionImage) {
+            // 如果只有舊版單張圖，轉為陣列，保持相容
+            safeCompletionImages = [data.completionImage];
+        }
+        // --------------------------------
 
         return {
             id,
@@ -236,33 +229,40 @@ const normalizeOrderData = (id, data) => {
             paidAmount: safePaidAmount,
             powerwallCount: parseInt(data.powerwallCount) || 0,
             gatewayCount: parseInt(data.gatewayCount) || 0,
-            status: safeStatus,
-            orderNumber: safeOrderNumber,
-            clientName: safeClientName,
-            phone: safePhone,
-            serviceType: safeServiceType,
-            date: safeDate,
-            time: safeTime,
-            address: safeAddress,
-            city: safeCity,
-            notes: safeNotes,
-            salesName: safeSalesName,
-            kolName: safeKolName,
-            paymentMethod: safePaymentMethod,
-            touSetting: safeTouSetting,
-            wireGauge: safeWireGauge,
-            gwLength: safeGwLength,
-            pwLength: safePwLength,
-            warrantyStartDate: safeWarrantyDate,
-            planningImage: safePlanningImage,
-            completionImage: safeCompletionImage,
-            clientSignature: safeClientSignature, 
-            signedAt: safeSignedAt,
-            createdAt: data.createdAt || { seconds: 0 }
+            status: data.status ? String(data.status) : "待場勘 (客戶預約)",
+            orderNumber: data.orderNumber !== undefined && data.orderNumber !== null ? String(data.orderNumber).trim() : "N/A",
+            clientName: data.clientName ? String(data.clientName) : "未命名客戶",
+            phone: (data.phone !== undefined && data.phone !== null) ? String(data.phone) : "", 
+            serviceType: data.serviceType ? String(data.serviceType) : SERVICE_TYPES[0],
+            date: data.date ? String(data.date) : "",
+            time: data.time ? String(data.time) : "",
+            address: data.address ? String(data.address) : "",
+            city: data.city ? String(data.city) : "",
+            notes: data.notes ? String(data.notes) : "",
+            salesName: data.salesName ? String(data.salesName) : "",
+            kolName: data.kolName ? String(data.kolName) : "",
+            paymentMethod: data.paymentMethod ? String(data.paymentMethod) : "",
+            touSetting: data.touSetting ? String(data.touSetting) : "",
+            wireGauge: data.wireGauge ? String(data.wireGauge) : "",
+            gwLength: data.gwLength ? String(data.gwLength) : "",
+            pwLength: data.pwLength ? String(data.pwLength) : "",
+            warrantyStartDate: data.warrantyStartDate ? String(data.warrantyStartDate) : "",
+            
+            // ✅ 使用正規化後的圖片陣列
+            planningImages: safePlanningImages,
+            completionImages: safeCompletionImages,
+            
+            clientSignature: data.clientSignature ? String(data.clientSignature) : "", 
+            signedAt: data.signedAt ? data.signedAt : null,
+            createdAt: data.createdAt || { seconds: 0 },
+            isDeal: !!data.isDeal, // 補回
+            needsDrilling: !!data.needsDrilling,
+            installType: data.installType || 'standard',
+            powerSpec: data.powerSpec || POWER_SPEC_OPTIONS[0]
         };
     } catch (e) {
         console.error("Data normalization error:", e);
-        return { id, status: "Error", clientName: "Data Error", orderNumber: "ERR", phone: "", technicians: [], conduits: [], breakers: [] };
+        return { id, status: "Error", clientName: "Data Error", orderNumber: "ERR", phone: "", technicians: [], conduits: [], breakers: [], planningImages: [], completionImages: [] };
     }
 };
 
@@ -679,8 +679,10 @@ export default function App() {
   const [statMonth, setStatMonth] = useState(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; });
   const [customConduit, setCustomConduit] = useState('');
 
-  const [uploadedImage, setUploadedImage] = useState(null);
-  const [uploadedCompletionImage, setUploadedCompletionImage] = useState(null);
+  // ✅ [V73.0 Update] 支援多張圖片上傳的 State
+  const [uploadedPlanningImages, setUploadedPlanningImages] = useState([]);
+  const [uploadedCompletionImages, setUploadedCompletionImages] = useState([]);
+  
   const [clientSignature, setClientSignature] = useState(null);
   const [toastMsg, setToastMsg] = useState('');
 
@@ -692,10 +694,12 @@ export default function App() {
     conduits: [], projectAmount: '', paidAmount: '', paymentMethod: PAYMENT_OPTIONS[0],
     installType: 'standard', wireGauge: WIRE_GAUGE_OPTIONS[0], gwLength: '', pwLength: '',
     breakers: [], warrantyStartDate: '',
-    planningImage: '', completionImage: '', clientSignature: ''
+    planningImages: [], // ✅ 使用陣列
+    completionImages: [], // ✅ 使用陣列
+    clientSignature: ''
   });
 
-  const showToast = (msg) => { setToastMsg(msg); };
+  const showToast = (msg) => { setToastMsg(msg); setSuccessMessage(msg); setShowSuccess(true); setTimeout(() => setShowSuccess(false), 2000); };
 
   // --- Effects ---
   useEffect(() => {
@@ -733,7 +737,6 @@ export default function App() {
     }
   }, [isAuthReady, isClientPortal, urlMode, user]); 
 
-  // ✅ [Updated] Fetch branding data as well
   useEffect(() => {
     if (!user || !db) return;
     const unsubOrders = onSnapshot(getCollection(db, 'dispatch_orders', useLegacyPath), (snap) => {
@@ -750,7 +753,6 @@ export default function App() {
     const unsubCerts = onSnapshot(getCollection(db, 'certification_types', useLegacyPath), (s) => setCertTypes(s.docs.map(d => ({id:d.id, ...d.data()}))));
     const unsubConduits = onSnapshot(getCollection(db, 'conduit_options', useLegacyPath), (s) => setDbConduits(s.docs.map(d => ({id:d.id, ...d.data()}))));
     
-    // ✅ [New] Fetch Branding
     const unsubBranding = onSnapshot(getDocRef(db, 'company_settings', 'branding', useLegacyPath), (d) => {
         if(d.exists()) setCompanyBranding(d.data());
     });
@@ -773,7 +775,6 @@ export default function App() {
   }, [orders, filterStatus, searchQuery, sortType]);
 
   const dashboardCounts = useMemo(() => {
-    // ✅ [Fix] 為所有數字計算加上防護，避免因資料讀取未完成而崩潰
     try {
         return {
             surveyPending: orders.filter(o => (o.status?.includes('待場勘') || o.status?.includes('已派場勘')) && !o.status?.includes('完成')).length || 0,
@@ -787,75 +788,42 @@ export default function App() {
   }, [orders]);
 
   const stats = useMemo(() => {
-    // ✅ [Fix] 將複雜統計邏輯包入 try-catch，防止單筆壞資料導致全站當機
     try {
         let monthlyTotal = 0, totalSurveyCount = 0, totalDealPW = 0, totalSalesRevenue = 0, totalPotentialRevenue = 0; 
         const techStats = {}; technicians.forEach(t => techStats[t.name] = { surveyPW: 0, installPW: 0, dealPW: 0 });
         const serviceCounts = {}; SERVICE_TYPES.forEach(s => serviceCounts[s] = { count: 0 });
         const salesStats = {}; salesTeam.forEach(s => salesStats[s.name] = { count: 0, revenue: 0, potential: 0 }); salesStats["未填寫"] = { count: 0, revenue: 0, potential: 0 };
-        // ✅ [V63.1 FIX] Allow dynamic KOL stats
         const kolStats = {}; 
         kols.forEach(k => kolStats[k.name] = { count: 0, revenue: 0, pwCount: 0 }); 
         kolStats["未填寫/無"] = { count: 0, revenue: 0, pwCount: 0 };
-
         let systemTotalPW = 0;
-
         orders.forEach(order => {
           let orderDate = order.date || '';
-          try {
-              const d = new Date(orderDate);
-              if (!isNaN(d.getTime())) {
-                  const y = d.getFullYear();
-                  const m = String(d.getMonth() + 1).padStart(2, '0');
-                  orderDate = `${y}-${m}`;
-              }
-          } catch (e) {}
-
+          try { const d = new Date(orderDate); if (!isNaN(d.getTime())) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); orderDate = `${y}-${m}`; } } catch (e) {}
           let amount = parseFloat((order.projectAmount||'0').toString().replace(/[^\d.]/g, '')) || 0;
-          
           const pwCount = parseInt(order.powerwallCount) || 0;
           const isDealStatus = ["已簽約", "已派安裝", "安裝完成", "已結案", "成交", "施工"].some(s => (order.status||'').includes(s));
           const isDealCheckbox = order.isDeal === true || order.isDeal === "true";
           const isCompletedInstall = ["安裝完成", "已結案", "驗收"].some(s => (order.status||'').includes(s));
-
           if (isDealStatus || isDealCheckbox) { systemTotalPW += pwCount; }
-            
           if (orderDate && orderDate.startsWith(statMonth)) {
             monthlyTotal++;
             const service = order.serviceType || '';
             if (!serviceCounts[service]) serviceCounts[service] = { count: 0 }; serviceCounts[service].count += 1;
-            
-            // ✅ [V63.1 FIX] Dynamic Sales Name
             const rawSalesName = (order.salesName || "未填寫").trim(); 
             if (!salesStats[rawSalesName]) salesStats[rawSalesName] = { count: 0, revenue: 0, potential: 0 };
-            
-            // ✅ [V63.1 FIX] Dynamic KOL Name
             const rawKolName = (order.kolName || "未填寫/無").trim();
             if (!kolStats[rawKolName]) kolStats[rawKolName] = { count: 0, revenue: 0, pwCount: 0 };
-
             if (isDealStatus || isDealCheckbox) {
-                salesStats[rawSalesName].count += 1; 
-                salesStats[rawSalesName].revenue += amount;
-                
-                kolStats[rawKolName].count += 1; 
-                kolStats[rawKolName].revenue += amount; 
-                kolStats[rawKolName].pwCount += pwCount;
-
+                salesStats[rawSalesName].count += 1; salesStats[rawSalesName].revenue += amount;
+                kolStats[rawKolName].count += 1; kolStats[rawKolName].revenue += amount; kolStats[rawKolName].pwCount += pwCount;
                 totalSalesRevenue += amount;
             } else {
-                if (amount > 0) { 
-                    salesStats[rawSalesName].potential += amount; 
-                    totalPotentialRevenue += amount; 
-                }
+                if (amount > 0) { salesStats[rawSalesName].potential += amount; totalPotentialRevenue += amount; }
             }
-            
-            if (isCompletedInstall) {
-                totalDealPW += pwCount;
-            }
-            
+            if (isCompletedInstall) { totalDealPW += pwCount; }
             const isSurvey = service.includes("場勘"); 
             if (isSurvey) totalSurveyCount++;
-            
             const isInstall = service.includes("安裝");
             const orderTechs = (order.technicians && order.technicians.length > 0) ? order.technicians : (order.technicianName ? [{name: order.technicianName}] : []);
             orderTechs.forEach(tech => {
@@ -868,17 +836,13 @@ export default function App() {
             });
           }
         });
-
         const sortedServices = Object.entries(serviceCounts).sort(([, a], [, b]) => b.count - a.count).map(([name, data]) => ({ name, count: data.count }));
         const sortedTechStats = Object.entries(techStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.surveyPW - a.surveyPW);
         const sortedSales = Object.entries(salesStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => (b.revenue + b.potential) - (a.revenue + a.potential)).filter(s => s.count > 0 || s.potential > 0); 
-        // ✅ [V63.1 FIX] Filter logic simplified to show all active KOLs in this month
         const sortedKols = Object.entries(kolStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.revenue - a.revenue).filter(k => k.count > 0 || k.revenue > 0);
         const maxSalesRevenue = Math.max(...sortedSales.map(s => s.revenue), 1);
-
         return { monthlyTotal, totalSurveyCount, totalDealPW, totalSalesRevenue, totalPotentialRevenue, sortedTechStats, sortedServices, sortedSales, sortedKols, maxSalesRevenue, systemTotalPW };
     } catch(e) {
-        console.error("Stats Error:", e);
         return { monthlyTotal: 0, totalSurveyCount: 0, totalDealPW: 0, totalSalesRevenue: 0, totalPotentialRevenue: 0, sortedTechStats: [], sortedServices: [], sortedSales: [], sortedKols: [], maxSalesRevenue: 1, systemTotalPW: 0 };
     }
   }, [orders, statMonth, technicians, salesTeam, kols]);
@@ -888,23 +852,24 @@ export default function App() {
       setFormData({
         clientName: '', phone: '', address: '', city: '', 
         serviceType: SERVICE_TYPES[0], date: '', time: '', technicians: [], status: STATUS_OPTIONS[0], notes: '',
-        powerwallCount: 0, gatewayCount: 0, isDeal: false, // ✅ 補回
+        powerwallCount: 0, gatewayCount: 0, isDeal: false,
         salesName: "", kolName: "", 
         powerSpec: POWER_SPEC_OPTIONS[0], needsDrilling: false,
         touSetting: TOU_OPTIONS[0],
         conduits: [], projectAmount: '', paidAmount: '', paymentMethod: PAYMENT_OPTIONS[0],
         installType: 'standard', wireGauge: WIRE_GAUGE_OPTIONS[0],
         gwLength: '', pwLength: '', breakers: [], warrantyStartDate: '',
-        planningImage: '', // Added
-        completionImage: '', // Added
-        clientSignature: '' // Added
+        planningImages: [], // ✅ 改為陣列
+        completionImages: [], // ✅ 改為陣列
+        clientSignature: ''
       });
       setSelectedOrder(null);
       setIsEditing(false);
-      setUploadedImage(null);
-      setUploadedCompletionImage(null);
+      setUploadedPlanningImages([]); // ✅ 清空多圖 State
+      setUploadedCompletionImages([]); // ✅ 清空多圖 State
       setClientSignature(null);
   };
+
   const handleLogin = (e) => { e.preventDefault(); if (passcode === ADMIN_PASSCODE) { localStorage.setItem('depower_admin', 'true'); setIsAdmin(true); setView('list'); } else { alert("通行碼錯誤"); } };
   
   const handleLogout = () => { 
@@ -916,12 +881,10 @@ export default function App() {
   
   const saveCompanyStats = async () => { try { await setDoc(getDocRef(db, 'company_settings', 'stats', useLegacyPath), { totalInstalledPw: parseInt(localPwCount) || 0 }, { merge: true }); setSuccessMessage('更新成功'); setShowSuccess(true); setTimeout(() => setShowSuccess(false), 1500); } catch (e) { alert("更新失敗"); } };
   
-  // ✅ [New] Save Company Logo
   const handleSaveLogo = async (logoData) => {
       try {
           await setDoc(getDocRef(db, 'company_settings', 'branding', useLegacyPath), { logo: logoData }, { merge: true });
-          setSuccessMessage('Logo 更新成功');
-          setShowSuccess(true);
+          showToast('Logo 更新成功');
       } catch (e) {
           alert("Logo 更新失敗");
       }
@@ -945,7 +908,7 @@ export default function App() {
             clientName: order.clientName || '', phone: order.phone || '', address: order.address || '', city: autoCity,
             serviceType: order.serviceType || SERVICE_TYPES[0], date: order.date || '', time: order.time || '',
             technicians: currentTechs, status: order.status || STATUS_OPTIONS[0], notes: order.notes || '',
-            powerwallCount: order.powerwallCount || 0, gatewayCount: order.gatewayCount || 0, isDeal: !!order.isDeal, // ✅ 補回
+            powerwallCount: order.powerwallCount || 0, gatewayCount: order.gatewayCount || 0, isDeal: !!order.isDeal,
             salesName: order.salesName || "", kolName: order.kolName || "", 
             powerSpec: order.powerSpec || POWER_SPEC_OPTIONS[0], 
             needsDrilling: !!order.needsDrilling, 
@@ -955,14 +918,14 @@ export default function App() {
             installType: order.installType || 'standard', wireGauge: safeWireGauge, 
             gwLength: order.gwLength || '', pwLength: order.pwLength || '', 
             breakers: initialBreakers, warrantyStartDate: order.warrantyStartDate || '',
-            planningImage: order.planningImage || '', // Added
-            completionImage: order.completionImage || '', // Added
-            clientSignature: order.clientSignature || '' // Added
+            planningImages: order.planningImages || [], // ✅
+            completionImages: order.completionImages || [], // ✅
+            clientSignature: order.clientSignature || ''
         });
         setSelectedOrder(order); 
         setIsEditing(true); 
-        setUploadedImage(order.planningImage || null);
-        setUploadedCompletionImage(order.completionImage || null);
+        setUploadedPlanningImages(order.planningImages || []); // ✅
+        setUploadedCompletionImages(order.completionImages || []); // ✅
         setClientSignature(order.clientSignature || null);
         setView('create');
     } catch(e) {
@@ -979,51 +942,49 @@ export default function App() {
       try { 
           let finalCity = formData.city; 
           if (!finalCity && formData.address) { const found = TAIWAN_CITIES.find(c => formData.address.includes(c)); if (found) finalCity = found; } 
-          const dataToSave = { ...formData, city: finalCity || "", projectAmount: parseInt(String(formData.projectAmount).replace(/,/g, '') || 0), paidAmount: parseInt(String(formData.paidAmount).replace(/,/g, '') || 0), planningImage: uploadedImage || '', completionImage: uploadedCompletionImage || '', clientSignature: clientSignature || '' }; 
+          
+          const dataToSave = { 
+              ...formData, 
+              city: finalCity || "", 
+              projectAmount: parseInt(String(formData.projectAmount).replace(/,/g, '') || 0), 
+              paidAmount: parseInt(String(formData.paidAmount).replace(/,/g, '') || 0), 
+              
+              // ✅ 儲存陣列
+              planningImages: uploadedPlanningImages,
+              completionImages: uploadedCompletionImages,
+              
+              // 為了相容性，保留第一張圖在舊欄位 (可選)
+              planningImage: uploadedPlanningImages.length > 0 ? uploadedPlanningImages[0] : '',
+              completionImage: uploadedCompletionImages.length > 0 ? uploadedCompletionImages[0] : '',
+              
+              clientSignature: clientSignature || '' 
+          }; 
+          
           delete dataToSave.id; delete dataToSave.technicianName; delete dataToSave.conduitType; delete dataToSave.breakerType; 
-          if (isEditing && selectedOrder) { await updateDoc(getDocRef(db, 'dispatch_orders', selectedOrder.id, useLegacyPath), { ...dataToSave, updatedAt: serverTimestamp() }); setSuccessMessage('修改成功'); } 
-          else { await addDoc(getCollection(db, 'dispatch_orders', useLegacyPath), { ...dataToSave, status: formData.status, orderNumber: 'DP-' + Math.floor(100000 + Math.random() * 900000), createdAt: serverTimestamp() }); setSuccessMessage('新增成功'); } 
-          setShowSuccess(true); resetForm(); 
+          if (isEditing && selectedOrder) { await updateDoc(getDocRef(db, 'dispatch_orders', selectedOrder.id, useLegacyPath), { ...dataToSave, updatedAt: serverTimestamp() }); showToast('修改成功'); } 
+          else { await addDoc(getCollection(db, 'dispatch_orders', useLegacyPath), { ...dataToSave, status: formData.status, orderNumber: 'DP-' + Math.floor(100000 + Math.random() * 900000), createdAt: serverTimestamp() }); showToast('新增成功'); } 
+          resetForm(); 
         } catch (e) { console.error(e); alert(`操作失敗：${e.message}`); } finally { setIsProcessing(false); } 
     };
 
   const handleDeleteOrder = async (order) => { 
     if (!window.confirm(`確定刪除單號 ${order.orderNumber} (${order.clientName})？`)) return; 
-    
     setIsProcessing(true);
     try { 
         await deleteDoc(getDocRef(db, 'dispatch_orders', order.id, useLegacyPath)); 
-
         if (order.orderNumber && order.orderNumber !== 'N/A') {
             const colRef = getCollection(db, 'dispatch_orders', useLegacyPath);
             const snapshot = await getDocs(colRef);
-            
-            const duplicates = snapshot.docs.filter(d => {
-                const data = d.data();
-                return (String(data.orderNumber) === String(order.orderNumber)) && (d.id !== order.id);
-            });
-
+            const duplicates = snapshot.docs.filter(d => { const data = d.data(); return (String(data.orderNumber) === String(order.orderNumber)) && (d.id !== order.id); });
             if (duplicates.length > 0) {
-                const confirmDeepDelete = window.confirm(
-                    `⚠️ 系統檢測到後台還有 ${duplicates.length} 筆相同的重複資料 (可能是歷史殘留)，這會導致資料一直出現。\n\n是否要一併永久刪除這些重複項目？`
-                );
-                
-                if (confirmDeepDelete) {
-                    await Promise.all(duplicates.map(dup => deleteDoc(dup.ref)));
-                    alert(`已成功清除所有 ${order.clientName} 的重複資料。`);
-                }
+                const confirmDeepDelete = window.confirm(`⚠️ 系統檢測到後台還有 ${duplicates.length} 筆相同的重複資料 (可能是歷史殘留)，這會導致資料一直出現。\n\n是否要一併永久刪除這些重複項目？`);
+                if (confirmDeepDelete) { await Promise.all(duplicates.map(dup => deleteDoc(dup.ref))); alert(`已成功清除所有 ${order.clientName} 的重複資料。`); }
             }
         }
-
-        setSuccessMessage("已刪除"); 
-        setShowSuccess(true); 
+        showToast("已刪除"); 
         if(selectedOrder?.id === order.id) setSelectedOrder(null); 
         setTimeout(() => setView('list'), 1000); 
-    } catch(e) { 
-        alert("刪除失敗：" + e.message); 
-    } finally {
-        setIsProcessing(false);
-    }
+    } catch(e) { alert("刪除失敗：" + e.message); } finally { setIsProcessing(false); }
   };
 
   const handleExportData = () => { const dataStr = JSON.stringify(orders, null, 2); const blob = new Blob([dataStr], { type: "application/json" }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `depower_backup_${new Date().toISOString().split('T')[0]}.json`; link.click(); URL.revokeObjectURL(url); };
@@ -1038,40 +999,48 @@ export default function App() {
   const handleAvatarUpload = async (e) => { const file = e.target.files[0]; if (file) { try { const compressed = await compressImage(file, 400, 0.7); setPersonAvatar(compressed); } catch (err) { alert("圖片處理失敗"); } } };
   const handleLogoUpload = async (e) => { const file = e.target.files[0]; if (file) { try { const compressed = await compressImage(file, 800, 0.9); handleSaveLogo(compressed); } catch (err) { alert("圖片處理失敗"); } } };
 
-  const handleSavePerson = async () => { if (!user) { alert("請先登入系統。"); return; } const cleanName = personName.trim(); if (!cleanName) { alert("請輸入姓名/名稱"); return; } setIsProcessing(true); try { let collectionName = 'technicians'; if (manageTab === 'sales') collectionName = 'sales_team'; if (manageTab === 'kol') collectionName = 'kols'; if (manageTab === 'conduit') collectionName = 'conduit_options'; const colRef = getCollection(db, collectionName, useLegacyPath); if (!editingPersonId) { const currentList = manageTab === 'technician' ? technicians : (manageTab === 'sales' ? salesTeam : (manageTab === 'conduit' ? dbConduits : kols)); if (currentList.some(p => p.name === cleanName)) { alert("此名稱已存在！"); setIsProcessing(false); return; } } const personData = { name: cleanName, updatedAt: serverTimestamp() }; const cleanPhone = personPhone.trim(); if (cleanPhone) personData.phone = cleanPhone; if (personAvatar) personData.avatar = personAvatar; if (manageTab === 'technician') { if (!cleanPhone) { alert("技師請輸入電話"); setIsProcessing(false); return; } personData.certs = personCerts; } if (editingPersonId) { const docRef = getDocRef(db, collectionName, editingPersonId, useLegacyPath); await updateDoc(docRef, personData); setSuccessMessage(`資料已更新`); } else { personData.createdAt = serverTimestamp(); await addDoc(colRef, personData); setSuccessMessage(`新增成功`); } handleResetPersonForm(); setShowSuccess(true); setTimeout(() => setShowSuccess(false), 1000); } catch (e) { alert("儲存失敗：" + e.message); } finally { setIsProcessing(false); } };
+  const handleSavePerson = async () => { if (!user) { alert("請先登入系統。"); return; } const cleanName = personName.trim(); if (!cleanName) { alert("請輸入姓名/名稱"); return; } setIsProcessing(true); try { let collectionName = 'technicians'; if (manageTab === 'sales') collectionName = 'sales_team'; if (manageTab === 'kol') collectionName = 'kols'; if (manageTab === 'conduit') collectionName = 'conduit_options'; const colRef = getCollection(db, collectionName, useLegacyPath); if (!editingPersonId) { const currentList = manageTab === 'technician' ? technicians : (manageTab === 'sales' ? salesTeam : (manageTab === 'conduit' ? dbConduits : kols)); if (currentList.some(p => p.name === cleanName)) { alert("此名稱已存在！"); setIsProcessing(false); return; } } const personData = { name: cleanName, updatedAt: serverTimestamp() }; const cleanPhone = personPhone.trim(); if (cleanPhone) personData.phone = cleanPhone; if (personAvatar) personData.avatar = personAvatar; if (manageTab === 'technician') { if (!cleanPhone) { alert("技師請輸入電話"); setIsProcessing(false); return; } personData.certs = personCerts; } if (editingPersonId) { const docRef = getDocRef(db, collectionName, editingPersonId, useLegacyPath); await updateDoc(docRef, personData); showToast(`資料已更新`); } else { personData.createdAt = serverTimestamp(); await addDoc(colRef, personData); showToast(`新增成功`); } handleResetPersonForm(); } catch (e) { alert("儲存失敗：" + e.message); } finally { setIsProcessing(false); } };
   const handleDeletePerson = async (id) => { if (!user) return; let collectionName = 'technicians'; if (manageTab === 'sales') collectionName = 'sales_team'; if (manageTab === 'kol') collectionName = 'kols'; if (manageTab === 'conduit') collectionName = 'conduit_options'; const docRef = getDocRef(db, collectionName, id, useLegacyPath); if (window.confirm(`確定要刪除嗎？`)) { try { await deleteDoc(docRef); } catch (e) { alert("刪除失敗：" + e.message); } } };
   const handleAddCertType = async () => { const cleanCert = newCertType.trim(); if (!cleanCert) return; if (certTypes.some(c => c.name === cleanCert)) { alert("此證照名稱已存在"); return; } try { const colRef = getCollection(db, 'certification_types', useLegacyPath); await addDoc(colRef, { name: cleanCert }); setNewCertType(''); } catch (e) { alert(e.message) } };
   const handleDeleteCertType = async (id) => { const docRef = getDocRef(db, 'certification_types', id, useLegacyPath); if (window.confirm("確定刪除此證照類型？")) { try { await deleteDoc(docRef); } catch(e) { alert(e.message) } } };
   const togglePersonCert = (cert) => { if (personCerts.includes(cert)) { setPersonCerts(personCerts.filter(c => c !== cert)); } else { setPersonCerts([...personCerts, cert]); } };
-  const handleImportDefault = async () => { let collectionName = 'technicians'; let defaults = DEFAULT_TECHNICIANS; if (manageTab === 'sales') { collectionName = 'sales_team'; defaults = DEFAULT_SALES_TEAM; } if (manageTab === 'kol') { collectionName = 'kols'; defaults = DEFAULT_KOLS; } if (manageTab === 'conduit') { collectionName = 'conduit_options'; defaults = DEFAULT_CONDUIT_OPTIONS.map(name => ({name})); } const colRef = getCollection(db, collectionName, useLegacyPath); if (window.confirm(`確定要匯入預設名單嗎？`)) { setIsProcessing(true); try { const promises = defaults.map(item => addDoc(colRef, { ...item, createdAt: serverTimestamp() })); await Promise.all(promises); setSuccessMessage(`已成功匯入預設名單！`); setShowSuccess(true); setTimeout(() => setShowSuccess(false), 1500); } catch (e) { alert("匯入失敗：" + e.message); } finally { setIsProcessing(false); } } };
-  const handleImportDefaultCerts = async () => { setIsProcessing(true); try { const colRef = getCollection(db, 'certification_types', useLegacyPath); const promises = DEFAULT_CERT_TYPES.map(name => addDoc(colRef, { name })); await Promise.all(promises); setSuccessMessage("預設證照庫匯入成功"); setShowSuccess(true); } catch (e) { alert(e.message) } finally { setIsProcessing(false); } };
+  const handleImportDefault = async () => { let collectionName = 'technicians'; let defaults = DEFAULT_TECHNICIANS; if (manageTab === 'sales') { collectionName = 'sales_team'; defaults = DEFAULT_SALES_TEAM; } if (manageTab === 'kol') { collectionName = 'kols'; defaults = DEFAULT_KOLS; } if (manageTab === 'conduit') { collectionName = 'conduit_options'; defaults = DEFAULT_CONDUIT_OPTIONS.map(name => ({name})); } const colRef = getCollection(db, collectionName, useLegacyPath); if (window.confirm(`確定要匯入預設名單嗎？`)) { setIsProcessing(true); try { const promises = defaults.map(item => addDoc(colRef, { ...item, createdAt: serverTimestamp() })); await Promise.all(promises); showToast(`已成功匯入預設名單！`); } catch (e) { alert("匯入失敗：" + e.message); } finally { setIsProcessing(false); } } };
+  const handleImportDefaultCerts = async () => { setIsProcessing(true); try { const colRef = getCollection(db, 'certification_types', useLegacyPath); const promises = DEFAULT_CERT_TYPES.map(name => addDoc(colRef, { name })); await Promise.all(promises); showToast("預設證照庫匯入成功"); } catch (e) { alert(e.message) } finally { setIsProcessing(false); } };
   const addBreaker = () => { setFormData(prev => ({ ...prev, breakers: [...prev.breakers, { type: BREAKER_TYPES[0], count: 1 }] })); };
   const removeBreaker = (index) => { setFormData(prev => ({ ...prev, breakers: prev.breakers.filter((_, i) => i !== index) })); };
   const updateBreaker = (index, field, value) => { setFormData(prev => { const newBreakers = [...prev.breakers]; newBreakers[index] = { ...newBreakers[index], [field]: value }; return { ...prev, breakers: newBreakers }; }); };
   const toggleTechnician = (tech) => { const exists = formData.technicians.find(t => t.name === tech.name); if (exists) { setFormData({ ...formData, technicians: formData.technicians.filter(t => t.name !== tech.name) }); } else { setFormData({ ...formData, technicians: [...formData.technicians, tech] }); } };
   const toggleConduit = (option) => { const current = formData.conduits || []; if (current.includes(option)) { setFormData({ ...formData, conduits: current.filter(c => c !== option) }); } else { setFormData({ ...formData, conduits: [...current, option] }); } };
 
-  const handleImageUpload = async (e) => {
-      const file = e.target.files[0];
-      if (file) {
-          try {
-              const compressed = await compressImage(file);
-              setUploadedImage(compressed);
-          } catch (err) {
-              alert("圖片處理失敗");
-          }
+  // ✅ [V73.0 Update] 通用多圖上傳處理器
+  const handleMultipleImageUpload = async (e, setImagesFunc, currentImages) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+      
+      if (currentImages.length + files.length > 6) {
+          alert("圖片數量過多，建議單一類別不超過 6 張");
+          return;
+      }
+
+      setIsProcessing(true);
+      try {
+          const compressedPromises = files.map(file => compressImage(file, 800, 0.7)); // 稍微調整壓縮率以適應多圖
+          const newImages = await Promise.all(compressedPromises);
+          
+          setImagesFunc(prev => [...prev, ...newImages]);
+          showToast(`已新增 ${newImages.length} 張圖片`);
+      } catch (err) {
+          console.error(err);
+          alert("圖片處理失敗");
+      } finally {
+          setIsProcessing(false);
       }
   };
 
-  const handleCompletionImageUpload = async (e) => {
-      const file = e.target.files[0];
-      if (file) {
-          try {
-              const compressed = await compressImage(file);
-              setUploadedCompletionImage(compressed);
-          } catch (err) {
-              alert("圖片處理失敗");
-          }
+  // ✅ [V73.0 Update] 移除圖片
+  const removeImage = (index, setImagesFunc) => {
+      if(window.confirm("確定移除這張圖片嗎？")) {
+        setImagesFunc(prev => prev.filter((_, i) => i !== index));
       }
   };
 
@@ -1082,9 +1051,8 @@ export default function App() {
               clientSignature: signatureData,
               signedAt: serverTimestamp()
           });
-          setSuccessMessage("簽名已保存");
-          setShowSuccess(true);
-          fireConfetti(); 
+          showToast("簽名已保存");
+          // fireConfetti(); 
           setSelectedOrder(prev => ({ ...prev, clientSignature: signatureData }));
       } catch (e) {
           alert("簽名保存失敗: " + e.message);
@@ -1102,8 +1070,7 @@ export default function App() {
              setClientSignature("");
              setFormData(prev => ({ ...prev, clientSignature: "" }));
              setSelectedOrder(prev => ({ ...prev, clientSignature: "" }));
-             setSuccessMessage("簽名已刪除");
-             setShowSuccess(true);
+             showToast("簽名已刪除");
          } catch (e) {
              alert("刪除失敗: " + e.message);
          }
@@ -1182,13 +1149,21 @@ export default function App() {
                               </div>
                           </div>
                           
-                          {selectedOrder.planningImage && (
+                          {/* ✅ [V73.0 Update] 客戶端 - 系統規劃圖集 (Carousel) */}
+                          {selectedOrder.planningImages && selectedOrder.planningImages.length > 0 && (
                               <div className="bg-white/5 border border-gray-700 rounded-2xl p-4 animate-fade-in-up delay-400">
                                   <h4 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
-                                      <ImageIcon size={16} className="text-blue-400"/> 系統規劃圖
+                                      <ImageIcon size={16} className="text-blue-400"/> 系統規劃圖集
                                   </h4>
-                                  <div className="relative rounded-xl overflow-hidden group">
-                                      <img src={selectedOrder.planningImage} alt="Planning" className="w-full h-auto object-cover transform transition duration-500 group-hover:scale-105" />
+                                  <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
+                                      {selectedOrder.planningImages.map((img, idx) => (
+                                          <div key={idx} className="flex-shrink-0 w-64 snap-center relative rounded-xl overflow-hidden group border border-gray-600">
+                                              <img src={img} alt={`Plan ${idx}`} className="w-full h-48 object-cover transform transition duration-500 group-hover:scale-105" />
+                                              <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm">
+                                                  {idx + 1}/{selectedOrder.planningImages.length}
+                                              </div>
+                                          </div>
+                                      ))}
                                   </div>
                               </div>
                           )}
@@ -1199,13 +1174,21 @@ export default function App() {
 
                           {isReadyForSignature && (
                               <div className="animate-fade-in-up delay-700">
-                                {selectedOrder.completionImage && (
+                                {/* ✅ [V73.0 Update] 客戶端 - 完工照圖集 (Carousel) */}
+                                {selectedOrder.completionImages && selectedOrder.completionImages.length > 0 && (
                                     <div className="bg-white/5 border border-gray-700 rounded-2xl p-4 mb-4">
                                         <h4 className="text-sm font-bold text-green-400 mb-3 flex items-center gap-2">
                                             <Camera size={16} className="text-green-400"/> 完工確認照
                                         </h4>
-                                        <div className="relative rounded-xl overflow-hidden group">
-                                            <img src={selectedOrder.completionImage} alt="Completion" className="w-full h-auto object-cover transform transition duration-500 group-hover:scale-105" />
+                                        <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
+                                            {selectedOrder.completionImages.map((img, idx) => (
+                                                <div key={idx} className="flex-shrink-0 w-64 snap-center relative rounded-xl overflow-hidden group border border-gray-600">
+                                                    <img src={img} alt={`Completion ${idx}`} className="w-full h-48 object-cover transform transition duration-500 group-hover:scale-105" />
+                                                    <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm">
+                                                        {idx + 1}/{selectedOrder.completionImages.length}
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 )}
@@ -1253,7 +1236,41 @@ export default function App() {
                           </div>
                           <div className="bg-gray-800/50 rounded-2xl p-5 text-left border border-gray-700/50 backdrop-blur-sm"> <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-700/50"> <User className="text-gray-500" size={16}/> <span className="font-bold text-white">{selectedOrder.clientName}</span> </div> <div className="flex items-start gap-3"> <MapPin className="text-gray-500 mt-0.5" size={16}/> <span className="text-sm text-gray-300 leading-snug">{selectedOrder.address}</span> </div> </div>
                           
-                          {/* ✅ [New] 回饋與好禮區塊 */}
+                          {/* ✅ [V73.1 New] 保固頁面的完工圖展示區 */}
+                          {selectedOrder.completionImages && selectedOrder.completionImages.length > 0 && (
+                              <div className="mt-6 border-t border-gray-800 pt-6">
+                                  <h4 className="text-sm font-bold text-gray-400 mb-4 flex items-center gap-2 uppercase tracking-widest">
+                                      <Camera size={14}/> 工程完工紀錄
+                                  </h4>
+                                  <div className="flex overflow-x-auto gap-3 pb-2 snap-x scrollbar-hide">
+                                      {selectedOrder.completionImages.map((img, idx) => (
+                                          <div key={idx} className="flex-shrink-0 w-48 aspect-video snap-center relative rounded-lg overflow-hidden border border-gray-700 bg-gray-800 group">
+                                              <img src={img} alt={`Completion ${idx}`} className="w-full h-full object-cover transform transition duration-500 group-hover:scale-105" />
+                                              <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition"></div>
+                                          </div>
+                                      ))}
+                                  </div>
+                                  <p className="text-[10px] text-gray-600 mt-2 text-center">此影像紀錄將永久存檔於您的數位保固證書中</p>
+                              </div>
+                          )}
+
+                          {/* ✅ [V73.1 New] 保固頁面的規劃圖展示區 */}
+                          {selectedOrder.planningImages && selectedOrder.planningImages.length > 0 && (
+                              <div className="mt-4">
+                                  <h4 className="text-sm font-bold text-gray-400 mb-4 flex items-center gap-2 uppercase tracking-widest">
+                                      <ImageIcon size={14}/> 原始規劃圖面
+                                  </h4>
+                                  <div className="flex overflow-x-auto gap-3 pb-2 snap-x scrollbar-hide">
+                                      {selectedOrder.planningImages.map((img, idx) => (
+                                          <div key={idx} className="flex-shrink-0 w-48 aspect-video snap-center relative rounded-lg overflow-hidden border border-gray-700 bg-gray-800 group">
+                                              <img src={img} alt={`Plan ${idx}`} className="w-full h-full object-cover transform transition duration-500 group-hover:scale-105" />
+                                               <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition"></div>
+                                          </div>
+                                      ))}
+                                  </div>
+                              </div>
+                          )}
+
                           <div className="bg-gray-800/50 rounded-2xl p-5 text-left border border-gray-700/50 backdrop-blur-sm mt-6">
                               <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2"> <Gift size={16} className="text-pink-400"/> 填寫回饋．領取好禮 </h4>
                               <p className="text-xs text-gray-400 mb-4 leading-relaxed"> 感謝您的支持！完成以下兩項任務，我們將致贈 <span className="text-yellow-400 font-bold">7-11 City Cafe 兌換券兩張</span> 以表謝意。 </p>
@@ -1272,7 +1289,7 @@ export default function App() {
 
                   <div className="bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-400 p-6 pb-12 rounded-3xl text-white shadow-xl shadow-blue-900/20 relative overflow-hidden animate-fade-in-up delay-200">
                     <div className="absolute top-0 right-0 -mr-10 -mt-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
-                    <div className="relative z-10"> <div className="flex items-center gap-2 opacity-90 mb-3"> <div className="p-1 bg-white/20 rounded-lg backdrop-blur-md"> <Trophy size={14} className="text-yellow-300"/> </div> <span className="text-xs font-bold tracking-wider uppercase">DEPower 安裝實績</span> </div> <div className="flex items-baseline gap-2"> <span className="text-6xl font-black text-white tracking-tighter drop-shadow-lg"> <CountUp end={companyStats.totalInstalledPw||0} onComplete={fireConfetti} /> </span> <span className="text-lg font-medium opacity-90">顆 Powerwall</span> </div> </div> <div className="absolute bottom-0 left-0 w-full bg-black/10 backdrop-blur-md py-3 px-4 border-t border-white/10"> <p className="text-[10px] font-bold text-white/90 flex items-center justify-center gap-1.5 uppercase tracking-widest"> <Heart size={10} className="text-pink-300 fill-current"/> Premium Service Guarantee </p> </div>
+                    <div className="relative z-10"> <div className="flex items-center gap-2 opacity-90 mb-3"> <div className="p-1 bg-white/20 rounded-lg backdrop-blur-md"> <Trophy size={14} className="text-yellow-300"/> </div> <span className="text-xs font-bold tracking-wider uppercase">DEPower 安裝實績</span> </div> <div className="flex items-baseline gap-2"> <span className="text-6xl font-black text-white tracking-tighter drop-shadow-lg"> <CountUp end={companyStats.totalInstalledPw||0} duration={5000} /> </span> <span className="text-lg font-medium opacity-90">顆 Powerwall</span> </div> </div> <div className="absolute bottom-0 left-0 w-full bg-black/10 backdrop-blur-md py-3 px-4 border-t border-white/10"> <p className="text-[10px] font-bold text-white/90 flex items-center justify-center gap-1.5 uppercase tracking-widest"> <Heart size={10} className="text-pink-300 fill-current"/> Premium Service Guarantee </p> </div>
                   </div>
                   
                   <div className="space-y-4 animate-fade-in-up delay-300">
@@ -1330,7 +1347,6 @@ export default function App() {
                       </div>
                   )}
                   
-                  {/* ✅ [Updated] 技師卡片 (支援大頭照) */}
                   <div className="animate-fade-in-up delay-900">
                     <TechnicianCard orderTechs={selectedOrder.technicians} allTechs={technicians} isDarkMode={isWarranty} />
                   </div>
@@ -1356,7 +1372,6 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
             <div className="mb-6 flex justify-center">
-                 {/* ✅ [New] Login Screen Logo */}
                 {companyBranding.logo ? (
                     <img src={companyBranding.logo} alt={COMPANY_NAME} className="h-24 object-contain mb-4" />
                 ) : (
@@ -1375,7 +1390,6 @@ export default function App() {
         <header className="bg-white px-6 py-5 shadow-sm flex justify-between items-center"><h1 className="text-xl font-bold flex gap-2"><Settings/>設定</h1><button onClick={()=>setView('list')}><X/></button></header>
         {showPermissionError && <PermissionErrorModal onClose={()=>setShowPermissionError(false)} />}
         <main className="p-4 space-y-6 max-w-2xl mx-auto">
-            {/* ✅ [New] 品牌 Logo 設定 */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 <div className="flex justify-between items-start mb-4">
                     <div>
@@ -1484,73 +1498,86 @@ export default function App() {
                     </div>
                 </div>
 
-                {/* ✅ [V66.0 New Feature] 系統規劃圖上傳 */}
+                {/* ✅ [V73.2 UI FIX] 系統規劃圖上傳區塊 - 按鈕修正 */}
                 <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1">
-                        <ImageIcon size={14}/> 系統規劃圖 / 施工圖
+                        <ImageIcon size={14}/> 系統規劃圖 / 施工圖 ({uploadedPlanningImages.length})
                     </label>
+                    
+                    {/* 圖片預覽網格 */}
+                    {uploadedPlanningImages.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                            {uploadedPlanningImages.map((img, idx) => (
+                                <div key={`plan-${idx}`} className="relative group aspect-square bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                                    <img src={img} alt={`Plan ${idx}`} className="w-full h-full object-cover" />
+                                    {/* 修正後的刪除按鈕：常駐顯示，加大點擊區域 */}
+                                    <button
+                                        type="button"
+                                        onClick={() => removeImage(idx, setUploadedPlanningImages)}
+                                        className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md hover:bg-red-600 transition z-10"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* 上傳按鈕 */}
                     <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 transition cursor-pointer relative">
                         <input 
                             type="file" 
                             accept="image/*" 
+                            multiple 
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            onChange={handleImageUpload}
+                            onChange={(e) => handleMultipleImageUpload(e, setUploadedPlanningImages, uploadedPlanningImages)}
                         />
-                        {uploadedImage ? (
-                            <div className="relative">
-                                <img src={uploadedImage} alt="Planning Preview" className="max-h-40 mx-auto rounded-lg shadow-sm" />
-                                <button 
-                                    type="button"
-                                    onClick={(e) => { e.preventDefault(); setUploadedImage(null); }}
-                                    className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600"
-                                >
-                                    <X size={14} />
-                                </button>
-                                <p className="text-xs text-green-600 mt-2 font-bold">圖片已就緒</p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center gap-2 text-gray-400">
-                                <Upload size={24} />
-                                <span className="text-xs">點擊上傳圖片 (自動壓縮)</span>
-                            </div>
-                        )}
+                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                            <Upload size={24} />
+                            <span className="text-xs">點擊上傳多張圖片</span>
+                        </div>
                     </div>
                 </div>
 
-                {/* ✅ [V66.1 New Feature] 安裝完工照上傳 */}
+                {/* ✅ [V73.2 UI FIX] 完工照上傳區塊 - 按鈕修正 */}
                 <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1">
-                        <Camera size={14}/> 安裝完工照 (供客戶驗收)
+                        <Camera size={14}/> 安裝完工照 ({uploadedCompletionImages.length})
                     </label>
+                    
+                    {uploadedCompletionImages.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                            {uploadedCompletionImages.map((img, idx) => (
+                                <div key={`comp-${idx}`} className="relative group aspect-square bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                                    <img src={img} alt={`Comp ${idx}`} className="w-full h-full object-cover" />
+                                    {/* 修正後的刪除按鈕：常駐顯示，加大點擊區域 */}
+                                    <button
+                                        type="button"
+                                        onClick={() => removeImage(idx, setUploadedCompletionImages)}
+                                        className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md hover:bg-red-600 transition z-10"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 transition cursor-pointer relative">
                         <input 
                             type="file" 
                             accept="image/*" 
+                            multiple 
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            onChange={handleCompletionImageUpload}
+                            onChange={(e) => handleMultipleImageUpload(e, setUploadedCompletionImages, uploadedCompletionImages)}
                         />
-                        {uploadedCompletionImage ? (
-                            <div className="relative">
-                                <img src={uploadedCompletionImage} alt="Completion Preview" className="max-h-40 mx-auto rounded-lg shadow-sm" />
-                                <button 
-                                    type="button"
-                                    onClick={(e) => { e.preventDefault(); setUploadedCompletionImage(null); }}
-                                    className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600"
-                                >
-                                    <X size={14} />
-                                </button>
-                                <p className="text-xs text-green-600 mt-2 font-bold">完工照已就緒</p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center gap-2 text-gray-400">
-                                <Upload size={24} />
-                                <span className="text-xs">上傳完工照片 (自動壓縮)</span>
-                            </div>
-                        )}
+                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                            <Upload size={24} />
+                            <span className="text-xs">上傳完工照片 (可多張)</span>
+                        </div>
                     </div>
                 </div>
                 
-                {/* ✅ [V67.0 New Feature] 後台簽名管理 (檢視與重置) */}
                 {isEditing && clientSignature && (
                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-4">
                         <div className="flex justify-between items-center mb-2">
@@ -1611,7 +1638,6 @@ export default function App() {
                         {manageTab !== 'kol' && manageTab !== 'conduit' && ( <input className="flex-1 p-3 bg-gray-50 border rounded-xl" placeholder="電話 (選填)" type="tel" value={personPhone} onChange={e => setPersonPhone(e.target.value)} /> )}
                     </div>
                     
-                    {/* ✅ [V71.0 New] 人員大頭照上傳區塊 */}
                     {manageTab !== 'conduit' && (
                         <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-xl border border-dashed border-gray-300">
                             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center border text-gray-400 overflow-hidden relative">
@@ -1732,7 +1758,6 @@ export default function App() {
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search size={18} className="text-gray-400" /></div>
                     <input type="text" className="block w-full pl-10 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" placeholder="搜尋..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                 </div>
-                {/* ✅ V31.1: 新增排序選單 */}
                 <div className="relative">
                     <select 
                         value={sortType}
