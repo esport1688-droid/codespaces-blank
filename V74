@@ -9,7 +9,7 @@ import {
   Zap, Trash2, Briefcase, DollarSign, 
   Settings, FileText, Search, Award, Loader2, LogOut, UserCog, Star, Trophy, Heart, ZapOff, Link as LinkIcon, RefreshCw, Database, Download, Cloud, Shield,
   Check, Ruler, Activity, PenTool, ThumbsUp, ArrowUpDown, Package, Server, Info, CreditCard, ToggleLeft, Hammer, Sparkles, Box, Leaf, Printer,
-  HelpCircle, ChevronDown, ChevronUp, Upload, Image as ImageIcon, Eraser, Camera, Gift, Eye
+  HelpCircle, ChevronDown, ChevronUp, Upload, Image as ImageIcon, Eraser, Camera, Gift, Eye, Map, HardHat
 } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
@@ -22,7 +22,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 // 1. 系統全域設定與常數
 // =======================================================================
 
-const SYSTEM_VERSION = "V74.0 Release Candidate"; 
+const SYSTEM_VERSION = "V75.0 Production Ready"; 
 const COMPANY_NAME = "DEPower"; 
 const COMPANY_FULL_NAME = "崧象智能 DEPower";
 const COMPANY_SUBTITLE = "崧象智能"; 
@@ -244,11 +244,8 @@ const normalizeOrderData = (id, data) => {
             gwLength: data.gwLength ? String(data.gwLength) : "",
             pwLength: data.pwLength ? String(data.pwLength) : "",
             warrantyStartDate: data.warrantyStartDate ? String(data.warrantyStartDate) : "",
-            
-            // ✅ 使用正規化後的圖片陣列
             planningImages: safePlanningImages,
             completionImages: safeCompletionImages,
-            
             clientSignature: data.clientSignature ? String(data.clientSignature) : "", 
             signedAt: data.signedAt ? data.signedAt : null,
             createdAt: data.createdAt || { seconds: 0 },
@@ -320,21 +317,10 @@ const copyTextToClipboard = (text, msg) => {
     try { const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.left="-9999px"; document.body.appendChild(ta); ta.focus(); ta.select(); const successful = document.execCommand('copy'); document.body.removeChild(ta); if(successful) alert(msg || "已複製！"); else alert("複製失敗"); } catch (e) { alert("複製失敗"); }
 };
 
-const fireConfetti = () => {
-    const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d'); canvas.style.position = 'fixed'; canvas.style.top = '0'; canvas.style.left = '0'; canvas.style.width = '100%'; canvas.style.height = '100%'; canvas.style.pointerEvents = 'none'; canvas.style.zIndex = '99999'; document.body.appendChild(canvas);
-    let particles = []; const colors = ['#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50', '#8bc34a', '#cddc39', '#ffeb3b', '#ffc107', '#ff9800', '#ff5722'];
-    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }; window.addEventListener('resize', resize); resize();
-    for (let i = 0; i < 150; i++) { particles.push({ x: canvas.width / 2, y: canvas.height / 2, w: Math.random() * 10 + 5, h: Math.random() * 10 + 5, color: colors[Math.floor(Math.random() * colors.length)], vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20 - 5, gravity: 0.5, rotation: Math.random() * 360, rotationSpeed: (Math.random() - 0.5) * 10, opacity: 1 }); }
-    let animationId;
-    const animate = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); let activeParticles = 0; particles.forEach(p => { if (p.opacity <= 0) return; activeParticles++; p.x += p.vx; p.y += p.vy; p.vy += p.gravity; p.rotation += p.rotationSpeed; p.opacity -= 0.008; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate((p.rotation * Math.PI) / 180); ctx.globalAlpha = p.opacity; ctx.fillStyle = p.color; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore(); }); if (activeParticles > 0) animationId = requestAnimationFrame(animate); else { window.removeEventListener('resize', resize); if(document.body.contains(canvas)) document.body.removeChild(canvas); cancelAnimationFrame(animationId); } };
-    animate();
-};
-
 // =======================================================================
 // 3. UI 元件 (UI Components)
 // =======================================================================
 
-// ✅ [V74.0] 簽名板
 const SignaturePad = ({ onSave, title }) => {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
@@ -788,6 +774,11 @@ export default function App() {
         kols.forEach(k => kolStats[k.name] = { count: 0, revenue: 0, pwCount: 0 }); 
         kolStats["未填寫/無"] = { count: 0, revenue: 0, pwCount: 0 };
         let systemTotalPW = 0;
+        
+        // ✅ [V74.2 New] 分拆兩類統計
+        const citySurveyCounts = {};
+        const cityInstallCounts = {};
+        
         orders.forEach(order => {
           let orderDate = order.date || '';
           try { const d = new Date(orderDate); if (!isNaN(d.getTime())) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); orderDate = `${y}-${m}`; } } catch (e) {}
@@ -796,7 +787,24 @@ export default function App() {
           const isDealStatus = ["已簽約", "已派安裝", "安裝完成", "已結案", "成交", "施工"].some(s => (order.status||'').includes(s));
           const isDealCheckbox = order.isDeal === true || order.isDeal === "true";
           const isCompletedInstall = ["安裝完成", "已結案", "驗收"].some(s => (order.status||'').includes(s));
+          
           if (isDealStatus || isDealCheckbox) { systemTotalPW += pwCount; }
+          
+          const status = order.status || "";
+          const city = order.city || "未分區";
+
+          // ✅ [V74.2 New] 待場勘統計
+          if (status.includes("待場勘") || status.includes("已派場勘") || status.includes("預約")) {
+              if (!citySurveyCounts[city]) citySurveyCounts[city] = 0;
+              citySurveyCounts[city]++;
+          }
+
+          // ✅ [V74.2 New] 待安裝統計
+          if (status.includes("已簽約") || status.includes("待派安裝") || status.includes("已派安裝") || status.includes("施工")) {
+              if (!cityInstallCounts[city]) cityInstallCounts[city] = 0;
+              cityInstallCounts[city]++;
+          }
+
           if (orderDate && orderDate.startsWith(statMonth)) {
             monthlyTotal++;
             const service = order.serviceType || '';
@@ -827,14 +835,35 @@ export default function App() {
             });
           }
         });
+        
+        // ✅ [V74.2 New] 區域統計產生器
+        const regions = {
+            "北區": ["基隆市", "台北市", "新北市", "桃園市", "新竹市", "新竹縣", "宜蘭縣"],
+            "中區": ["苗栗縣", "台中市", "彰化縣", "南投縣", "雲林縣"],
+            "南區": ["嘉義市", "嘉義縣", "台南市", "高雄市", "屏東縣"],
+            "東區": ["花蓮縣", "台東縣"],
+            "離島": ["澎湖縣", "金門縣", "連江縣"]
+        };
+        const generateRegionalStats = (counts) => {
+            return Object.entries(regions).map(([region, cities]) => {
+                const cityData = cities.map(c => ({ name: c, count: counts[c] || 0 })).filter(c => c.count > 0).sort((a,b) => b.count - a.count);
+                const total = cityData.reduce((sum, c) => sum + c.count, 0);
+                return { region, cityData, total };
+            }).filter(r => r.total > 0);
+        };
+
+        const surveyRegionalStats = generateRegionalStats(citySurveyCounts);
+        const installRegionalStats = generateRegionalStats(cityInstallCounts);
+
         const sortedServices = Object.entries(serviceCounts).sort(([, a], [, b]) => b.count - a.count).map(([name, data]) => ({ name, count: data.count }));
         const sortedTechStats = Object.entries(techStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.surveyPW - a.surveyPW);
         const sortedSales = Object.entries(salesStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => (b.revenue + b.potential) - (a.revenue + a.potential)).filter(s => s.count > 0 || s.potential > 0); 
         const sortedKols = Object.entries(kolStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.revenue - a.revenue).filter(k => k.count > 0 || k.revenue > 0);
         const maxSalesRevenue = Math.max(...sortedSales.map(s => s.revenue), 1);
-        return { monthlyTotal, totalSurveyCount, totalDealPW, totalSalesRevenue, totalPotentialRevenue, sortedTechStats, sortedServices, sortedSales, sortedKols, maxSalesRevenue, systemTotalPW };
+        
+        return { monthlyTotal, totalSurveyCount, totalDealPW, totalSalesRevenue, totalPotentialRevenue, sortedTechStats, sortedServices, sortedSales, sortedKols, maxSalesRevenue, systemTotalPW, surveyRegionalStats, installRegionalStats };
     } catch(e) {
-        return { monthlyTotal: 0, totalSurveyCount: 0, totalDealPW: 0, totalSalesRevenue: 0, totalPotentialRevenue: 0, sortedTechStats: [], sortedServices: [], sortedSales: [], sortedKols: [], maxSalesRevenue: 1, systemTotalPW: 0 };
+        return { monthlyTotal: 0, totalSurveyCount: 0, totalDealPW: 0, totalSalesRevenue: 0, totalPotentialRevenue: 0, sortedTechStats: [], sortedServices: [], sortedSales: [], sortedKols: [], maxSalesRevenue: 1, systemTotalPW: 0, surveyRegionalStats: [], installRegionalStats: [] };
     }
   }, [orders, statMonth, technicians, salesTeam, kols]);
 
@@ -850,8 +879,8 @@ export default function App() {
         conduits: [], projectAmount: '', paidAmount: '', paymentMethod: PAYMENT_OPTIONS[0],
         installType: 'standard', wireGauge: WIRE_GAUGE_OPTIONS[0],
         gwLength: '', pwLength: '', breakers: [], warrantyStartDate: '',
-        planningImages: [], // ✅ 改為陣列
-        completionImages: [], // ✅ 改為陣列
+        planningImages: [], // ✅ 使用陣列
+        completionImages: [], // ✅ 使用陣列
         clientSignature: ''
       });
       setSelectedOrder(null);
@@ -1724,6 +1753,95 @@ export default function App() {
         </header>
         <main className="max-w-2xl mx-auto p-4 space-y-6">
             <div className="grid grid-cols-2 gap-4"><StatCard title="總派案量" value={stats.monthlyTotal} icon={CalendarDays} colorClass="bg-gradient-to-br from-blue-500 to-blue-700" /><StatCard title="總場勘數" value={stats.totalSurveyCount} icon={Calendar} colorClass="bg-gradient-to-br from-purple-500 to-purple-700" /></div>
+            
+            {/* ✅ [V74.2 Final] 待場勘熱點分析儀表板 */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-red-100">
+                <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100">
+                    <Map className="text-red-600" size={24} />
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">待場勘熱點分析</h2>
+                        <p className="text-xs text-gray-400">目前「待場勘/已派場勘」的業務需求熱區</p>
+                    </div>
+                </div>
+                
+                {stats.surveyRegionalStats.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-6">
+                        {stats.surveyRegionalStats.map((regionGroup, idx) => (
+                            <div key={regionGroup.region} className="border border-red-50 rounded-xl p-4 bg-red-50/20">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                                        <span className={`w-2 h-2 rounded-full ${['bg-red-500','bg-orange-500','bg-yellow-500','bg-rose-500','bg-pink-500'][idx%5]}`}></span>
+                                        {regionGroup.region} <span className="text-xs text-gray-400 font-normal">({regionGroup.total} 案)</span>
+                                    </h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {regionGroup.cityData.map((city) => (
+                                        <div key={city.name} className="flex items-center gap-3">
+                                            <span className="text-xs font-bold text-gray-600 w-16">{city.name}</span>
+                                            <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden relative">
+                                                <div 
+                                                    className={`h-full rounded-full transition-all duration-1000 ${['bg-red-500','bg-orange-500','bg-yellow-500','bg-rose-500','bg-pink-500'][idx%5]}`} 
+                                                    style={{ width: `${Math.min(100, (city.count / regionGroup.total) * 100)}%` }}
+                                                ></div>
+                                            </div>
+                                            <span className="text-xs font-bold text-gray-700 w-8 text-right">{city.count}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-gray-400 text-sm">
+                        目前沒有待場勘案件
+                    </div>
+                )}
+            </div>
+
+            {/* ✅ [V74.2 Final] 待安裝熱點分析儀表板 */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-100">
+                <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100">
+                    <HardHat className="text-purple-600" size={24} />
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">待安裝熱點分析</h2>
+                        <p className="text-xs text-gray-400">目前「已簽約/施工中」的工程人力需求熱區</p>
+                    </div>
+                </div>
+                
+                {stats.installRegionalStats.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-6">
+                        {stats.installRegionalStats.map((regionGroup, idx) => (
+                            <div key={regionGroup.region} className="border border-purple-50 rounded-xl p-4 bg-purple-50/20">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                                        <span className={`w-2 h-2 rounded-full ${['bg-purple-500','bg-blue-500','bg-indigo-500','bg-violet-500','bg-sky-500'][idx%5]}`}></span>
+                                        {regionGroup.region} <span className="text-xs text-gray-400 font-normal">({regionGroup.total} 案)</span>
+                                    </h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {regionGroup.cityData.map((city) => (
+                                        <div key={city.name} className="flex items-center gap-3">
+                                            <span className="text-xs font-bold text-gray-600 w-16">{city.name}</span>
+                                            <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden relative">
+                                                <div 
+                                                    className={`h-full rounded-full transition-all duration-1000 ${['bg-purple-500','bg-blue-500','bg-indigo-500','bg-violet-500','bg-sky-500'][idx%5]}`} 
+                                                    style={{ width: `${Math.min(100, (city.count / regionGroup.total) * 100)}%` }}
+                                                ></div>
+                                            </div>
+                                            <span className="text-xs font-bold text-gray-700 w-8 text-right">{city.count}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-gray-400 text-sm">
+                        目前沒有待安裝案件
+                    </div>
+                )}
+            </div>
+
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"><div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100"><DollarSign className="text-green-600" /><h2 className="text-lg font-bold text-gray-800">業績財務概況</h2></div><div className="grid grid-cols-2 gap-6 divide-x divide-gray-100"><div><p className="text-xs text-gray-400 mb-1">已確認營收 (成交)</p><div className="text-2xl font-bold text-green-600">{new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(stats.totalSalesRevenue)}</div></div><div className="pl-6"><p className="text-xs text-gray-400 mb-1">預估潛在金額 (報價中)</p><div className="text-2xl font-bold text-gray-400">{new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(stats.totalPotentialRevenue)}</div></div></div></div>
             <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-2xl p-6 text-white shadow-lg"><div className="flex items-center gap-3 mb-2"><div className="p-2 bg-white/20 rounded-lg"><CheckCircle size={24} /></div><span className="text-green-100 font-medium">本月完工 PW 總數</span></div><div className="text-5xl font-bold mt-2">{stats.totalDealPW} <span className="text-xl font-normal text-green-200">顆</span></div></div>
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"><div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-100"><Briefcase className="text-blue-600" /><h2 className="text-lg font-bold text-gray-800">業務績效排行</h2></div><div className="space-y-6">{stats.sortedSales.map((sale) => (<div key={sale.name}><div className="flex justify-between text-sm mb-1"><span className="font-bold text-gray-800">{sale.name}</span><div className="text-right"><span className="font-bold text-green-600">{new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(sale.revenue)}</span>{sale.potential > 0 && (<span className="text-xs text-gray-400 block">+ {new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(sale.potential)} (預估)</span>)}</div></div><div className="w-full bg-gray-100 rounded-full h-2.5 flex overflow-hidden"><div className="h-2.5 bg-green-500" style={{ width: `${Math.max(0, (sale.revenue / stats.maxSalesRevenue) * 100)}%` }} title="已成交"></div><div className="h-2.5 bg-gray-300" style={{ width: `${Math.max(0, (sale.potential / stats.maxSalesRevenue) * 100)}%` }} title="預估中"></div></div></div>))}</div></div>
