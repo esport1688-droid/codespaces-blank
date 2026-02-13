@@ -22,7 +22,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 // 1. 系統全域設定與常數
 // =======================================================================
 
-const SYSTEM_VERSION = "V73.2 Fix Delete Btn"; 
+const SYSTEM_VERSION = "V74.0 Release Candidate"; 
 const COMPANY_NAME = "DEPower"; 
 const COMPANY_FULL_NAME = "崧象智能 DEPower";
 const COMPANY_SUBTITLE = "崧象智能"; 
@@ -207,7 +207,6 @@ const normalizeOrderData = (id, data) => {
         if (Array.isArray(data.planningImages)) {
             safePlanningImages = data.planningImages;
         } else if (data.planningImage) {
-            // 如果只有舊版單張圖，轉為陣列，保持相容
             safePlanningImages = [data.planningImage];
         }
 
@@ -215,10 +214,8 @@ const normalizeOrderData = (id, data) => {
         if (Array.isArray(data.completionImages)) {
             safeCompletionImages = data.completionImages;
         } else if (data.completionImage) {
-            // 如果只有舊版單張圖，轉為陣列，保持相容
             safeCompletionImages = [data.completionImage];
         }
-        // --------------------------------
 
         return {
             id,
@@ -255,7 +252,7 @@ const normalizeOrderData = (id, data) => {
             clientSignature: data.clientSignature ? String(data.clientSignature) : "", 
             signedAt: data.signedAt ? data.signedAt : null,
             createdAt: data.createdAt || { seconds: 0 },
-            isDeal: !!data.isDeal, // 補回
+            isDeal: !!data.isDeal,
             needsDrilling: !!data.needsDrilling,
             installType: data.installType || 'standard',
             powerSpec: data.powerSpec || POWER_SPEC_OPTIONS[0]
@@ -337,7 +334,8 @@ const fireConfetti = () => {
 // 3. UI 元件 (UI Components)
 // =======================================================================
 
-const SignaturePad = ({ onSave }) => {
+// ✅ [V74.0] 簽名板
+const SignaturePad = ({ onSave, title }) => {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const startDrawing = (e) => { const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect(); const x = (e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0)) - rect.left; const y = (e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0)) - rect.top; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(x, y); setIsDrawing(true); };
@@ -357,7 +355,7 @@ const SignaturePad = ({ onSave }) => {
     }, []);
     return (
         <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-            <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><PenTool size={16} /> 客戶電子簽名 (驗收確認)</h4>
+            <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><PenTool size={16} /> {title || "客戶電子簽名"}</h4>
             <div className="border-2 border-dashed border-gray-300 rounded-lg mb-3 bg-gray-50 overflow-hidden touch-none"><canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="w-full h-[200px] cursor-crosshair"/></div>
             <div className="flex gap-2"><button onClick={clearCanvas} className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 flex items-center justify-center gap-1"><Eraser size={14} /> 清除重簽</button><button onClick={saveSignature} className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center justify-center gap-1"><CheckCircle size={14} /> 確認簽署</button></div>
         </div>
@@ -373,7 +371,6 @@ const TeslaPowerwallGraphic = ({ scale = 1.0 }) => (
                     <stop offset="0.5" stopColor="#F9FAFB"/>
                     <stop offset="1" stopColor="#E5E7EB"/>
                 </linearGradient>
-                 {/* ✅ Extreme Glow Filter */}
                  <filter id="pw-green-glow" x="-100%" y="-100%" width="300%" height="300%">
                     <feGaussianBlur stdDeviation="4.5" result="coloredBlur"/>
                     <feMerge>
@@ -382,18 +379,12 @@ const TeslaPowerwallGraphic = ({ scale = 1.0 }) => (
                     </feMerge>
                 </filter>
             </defs>
-            {/* Shadow */}
             <rect x="5" y="5" width="130" height="210" rx="3" fill="black" fillOpacity="0.25" filter="blur(8px)"/>
-            {/* Main Body */}
             <rect x="0" y="0" width="135" height="215" rx="2" fill="url(#pwBodyGradient)" stroke="#D1D5DB" strokeWidth="0.5"/>
-            {/* Side Detail */}
             <path d="M125 0 H 135 V 215 H 125 Z" fill="#18181B" />
-            
-            {/* ✅ Ultra Breathing Light Strip */}
             <rect x="127.5" y="20" width="3.5" height="175" rx="1.5" fill="#22c55e" filter="url(#pw-green-glow)">
                 <animate attributeName="opacity" values="0.3; 1; 0.3" duration="2.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.42 0 0.58 1; 0.42 0 0.58 1"/>
             </rect>
-
             <text x="67.5" y="80" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="11" fill="#374151" textAnchor="middle" letterSpacing="2" style={{opacity: 0.8}}>TESLA</text>
         </svg>
     </div>
@@ -1098,10 +1089,14 @@ export default function App() {
       if (!selectedOrder) return <Loading text="讀取資料中..." />;
       
       const isWarranty = clientMode === 'warranty';
-      const isClosed = (selectedOrder.status || "").includes("已結案");
-      const isSignaturePhase = ["已簽約", "待派安裝", "已派安裝", "施工", "安裝完成", "驗收"].some(s => (selectedOrder.status || "").includes(s));
-      const isReadyForSignature = isSignaturePhase && !isClosed;
+      // ✅ [V73.3 FIX] 移除不必要的 "已結案" 判斷，避免干擾邏輯
+      const isSignaturePhase = ["報價完成", "已簽約", "待派安裝", "已派安裝", "施工", "安裝完成", "驗收"].some(s => (selectedOrder.status || "").includes(s));
+      const isReadyForSignature = isSignaturePhase; // 簡化邏輯，只要在簽約/施工階段就可以簽
       
+      // ✅ [V73.3 NEW] 動態簽名標題
+      const isQuotePhase = (selectedOrder.status || "").includes("報價");
+      const signatureTitle = isQuotePhase ? "客戶電子簽名 (報價單確認)" : "客戶電子簽名 (驗收確認)";
+
       const isCompleted = ["安裝完成", "已結案", "驗收"].some(s => (selectedOrder.status || "").includes(s));
 
       const getGreeting = () => { const h = new Date().getHours(); if (h < 12) return "早安"; if (h < 18) return "午安"; return "晚安"; };
@@ -1174,8 +1169,8 @@ export default function App() {
 
                           {isReadyForSignature && (
                               <div className="animate-fade-in-up delay-700">
-                                {/* ✅ [V73.0 Update] 客戶端 - 完工照圖集 (Carousel) */}
-                                {selectedOrder.completionImages && selectedOrder.completionImages.length > 0 && (
+                                {/* ✅ [V73.0 Update] 客戶端 - 完工照圖集 (Carousel) - 僅在非報價階段顯示 */}
+                                {!isQuotePhase && selectedOrder.completionImages && selectedOrder.completionImages.length > 0 && (
                                     <div className="bg-white/5 border border-gray-700 rounded-2xl p-4 mb-4">
                                         <h4 className="text-sm font-bold text-green-400 mb-3 flex items-center gap-2">
                                             <Camera size={16} className="text-green-400"/> 完工確認照
@@ -1195,14 +1190,16 @@ export default function App() {
 
                                 {!selectedOrder.clientSignature ? (
                                     <div className="mt-4">
-                                        <SignaturePad onSave={handleClientSign} />
+                                        <SignaturePad onSave={handleClientSign} title={signatureTitle} />
                                     </div>
                                 ) : (
                                     <div className="bg-green-900/20 border border-green-500/30 rounded-2xl p-4 mt-4 text-center animate-bounce-in">
                                         <div className="flex justify-center mb-2">
                                             <CheckCircle size={32} className="text-green-500" />
                                         </div>
-                                        <h4 className="text-green-400 font-bold mb-2">合約已簽署完成</h4>
+                                        <h4 className="text-green-400 font-bold mb-2">
+                                            {isQuotePhase ? "報價單已簽署確認" : "合約已簽署完成"}
+                                        </h4>
                                         <div className="bg-white/90 p-2 rounded-lg inline-block shadow-lg">
                                            <img src={selectedOrder.clientSignature} alt="Signature" className="max-h-16 mx-auto" />
                                         </div>
@@ -1786,7 +1783,7 @@ export default function App() {
         <main className="max-w-2xl mx-auto p-4 space-y-4">
           <ErrorBoundary>
           {filteredOrders.map((order, index) => {
-            const isCompleted = (order.status || "").includes('完成') || (order.status || "").includes('結案');
+            const isCompleted = (order.status || "").includes('安裝完成') || (order.status || "").includes('結案') || (order.status || "").includes('驗收');
             return (
             <div key={order.id || index} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
               <button onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order); }} className="absolute top-4 right-4 text-gray-300 hover:text-red-500 p-1 z-10"><Trash2 size={18} /></button>
