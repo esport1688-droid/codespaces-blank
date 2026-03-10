@@ -1548,6 +1548,23 @@ export default function App() {
                                   <div className="w-full pt-4 border-t border-gray-700/50 flex flex-col gap-3 text-left"> <div className="flex items-center gap-3"> <div className="p-2 bg-blue-500/20 rounded-full text-blue-400"> <User size={16} /> </div> <div> <p className="text-[10px] text-gray-400 uppercase tracking-wider">尊貴客戶</p> <p className="text-sm font-bold text-white">{selectedOrder.clientName}</p> </div> </div> <div className="flex items-start gap-3"> <div className="p-2 bg-red-500/20 rounded-full text-red-400 mt-0.5"> <MapPin size={16} /> </div> <div className="flex-1"> <p className="text-[10px] text-gray-400 uppercase tracking-wider">服務地址</p> <p className="text-sm font-medium text-white leading-relaxed mb-2">{selectedOrder.address}</p> <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedOrder.address)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 rounded-lg text-xs text-blue-300 transition w-full justify-center"> <MapPin size={12} /> 開啟導航 </a> </div> </div> <div className="flex items-center gap-3"> <div className="p-2 bg-green-500/20 rounded-full text-green-400"> <Phone size={16} /> </div> <div> <p className="text-[10px] text-gray-400 uppercase tracking-wider">聯絡電話</p> <a href={`tel:${selectedOrder.phone}`} className="text-sm font-bold text-white hover:text-green-400 transition">{selectedOrder.phone}</a> </div> </div> </div>
                               </div>
                           </div>
+
+                          {(selectedOrder.powerwallCount > 0 || selectedOrder.gatewayCount > 0) && (
+                              <div className="bg-white/5 border border-gray-700 rounded-2xl p-5 text-center animate-fade-in-up delay-400">
+                                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
+                                      {isCompleted ? '已安裝設備' : '預定配置設備'}
+                                  </h4>
+                                  <div className="flex justify-center gap-2 flex-wrap items-end mb-3"> 
+                                      {Array.from({ length: selectedOrder.powerwallCount || 0 }).map((_, i) => ( <TeslaPowerwallGraphic key={`pw-std-${i}`} scale={0.5} /> ))} 
+                                      {Array.from({ length: selectedOrder.gatewayCount || 0 }).map((_, i) => ( <TeslaGatewayGraphic key={`gw-std-${i}`} scale={0.7} /> ))} 
+                                  </div>
+                                  <div className="inline-flex items-center gap-3 text-xs font-bold text-gray-300 bg-gray-800/50 py-1.5 px-3 rounded-full border border-gray-700"> 
+                                      {selectedOrder.powerwallCount > 0 && ( <span>Powerwall x {selectedOrder.powerwallCount}</span> )} 
+                                      {selectedOrder.powerwallCount > 0 && selectedOrder.gatewayCount > 0 && ( <span className="text-gray-600">|</span> )} 
+                                      {selectedOrder.gatewayCount > 0 && ( <span>Gateway x {selectedOrder.gatewayCount}</span> )} 
+                                  </div>
+                              </div>
+                          )}
                           
                           {selectedOrder.planningImages && selectedOrder.planningImages.length > 0 && (
                               <div className="bg-white/5 border border-gray-700 rounded-2xl p-4 animate-fade-in-up delay-400">
