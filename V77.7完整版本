@@ -1,0 +1,2282 @@
+import React, { useState, useEffect, useMemo, Component, memo, useRef, useCallback } from 'react';
+import { 
+  Calendar, MapPin, User, Phone, Clock, 
+  CheckCircle, Plus, Share2, ArrowRight, 
+  Clipboard, Wrench, BatteryCharging,
+  ChevronLeft, ShieldCheck,
+  MessageCircle, MessageSquare, Lock, LogIn, X, 
+  Edit2, Save, BarChart2, TrendingUp, CalendarDays,
+  Zap, Trash2, Briefcase, DollarSign, 
+  Settings, FileText, Search, Award, Loader2, LogOut, UserCog, Star, Trophy, Heart, ZapOff, Link as LinkIcon, RefreshCw, Database, Download, Cloud, Shield,
+  Check, Ruler, Activity, PenTool, ThumbsUp, ArrowUpDown, Package, Server, Info, CreditCard, ToggleLeft, Hammer, Sparkles, Box, Leaf, Printer,
+  HelpCircle, ChevronDown, ChevronUp, Upload, Image as ImageIcon, Eraser, Camera, Gift, Eye, Map, HardHat, ChevronRight, List
+} from 'lucide-react';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { 
+  getFirestore, collection, addDoc, updateDoc, doc, deleteDoc, setDoc,
+  onSnapshot, serverTimestamp, getDocs
+} from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+
+// =======================================================================
+// 1. 系統全域設定與常數
+// =======================================================================
+
+const SYSTEM_VERSION = "V77.7 Warranty Layout Optimized Final"; 
+const COMPANY_NAME = "DEPower"; 
+const COMPANY_FULL_NAME = "崧象智能 DEPower";
+const COMPANY_SUBTITLE = "崧象智能"; 
+const COMPANY_PHONE = "0809-093-398"; 
+const ADMIN_PASSCODE = "8888"; 
+
+const SERVICE_DURATIONS = {
+  "機電場勘評估 (Tesla Powerwall)": 1.5,
+  "正式安裝工程(Tesla Powerwall)": 8,
+  "系統設定與教學": 1,
+  "定期維護": 2,
+  "緊急維修": 3
+};
+
+// --- 安全讀取 LocalStorage ---
+let savedConfig = null;
+try {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('depower_custom_config') : null;
+    if (stored) savedConfig = JSON.parse(stored);
+} catch (e) { 
+    console.warn("Storage access denied"); 
+}
+
+// --- Firebase 設定 ---
+const manualConfig = {
+  apiKey: "AIzaSyD39VA2PJv1-UHVyY2ot1YtWAVv0fTJYqc",
+  authDomain: "depower-c4c2b.firebaseapp.com",
+  projectId: "depower-c4c2b",
+  storageBucket: "depower-c4c2b.firebasestorage.app",
+  messagingSenderId: "366209767118",
+  appId: "1:366209767118:web:3e4bce5537170ddf3aa29f"
+};
+
+const envConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+let firebaseConfig = envConfig;
+let isCustomDB = false;
+
+if (savedConfig) {
+    firebaseConfig = savedConfig;
+    isCustomDB = true;
+} else if (manualConfig.apiKey && manualConfig.apiKey.length > 0) {
+    firebaseConfig = manualConfig;
+    isCustomDB = true;
+} else if (envConfig.apiKey) {
+    firebaseConfig = envConfig;
+    isCustomDB = false;
+}
+
+const APP_ID = isCustomDB ? 'custom-db' : (typeof __app_id !== 'undefined' ? __app_id : 'depower-c4c2b');
+
+// --- 下拉選單資料 ---
+const TAIWAN_CITIES = ["基隆市", "台北市", "新北市", "桃園市", "新竹市", "新竹縣", "苗栗縣", "台中市", "彰化縣", "南投縣", "雲林縣", "嘉義市", "嘉義縣", "台南市", "高雄市", "屏東縣", "台東縣", "花蓮縣", "宜蘭縣", "澎湖縣", "金門縣", "連江縣"];
+const TOU_OPTIONS = ["無需設定", "協助設定二段式時間電價", "協助設定三段式時間電價"];
+const BREAKER_TYPES = ["ABB 32A", "ABB 50A", "ABB 60A", "ABB 80A", "ABB 100A"];
+const SERVICE_TYPES = ["機電場勘評估 (Tesla Powerwall)", "正式安裝工程(Tesla Powerwall)", "系統設定與教學", "定期維護", "緊急維修"];
+const STATUS_OPTIONS = ["待場勘 (客戶預約)", "已派場勘 (技師前往)", "場勘完成 (待報價)", "報價完成 (待簽約)", "已簽約 (待派安裝)", "已派安裝 (技師前往)", "安裝完成 (待驗收)", "已結案"];
+const POWER_SPEC_OPTIONS = ["單相三線 110/220V", "三相三線 220V", "三相四線 220/380V"];
+const DEFAULT_CONDUIT_OPTIONS = ["未選定", "10cm*10cm鋁線槽 (金屬風格)", "5cm*10cm鋁線槽（金屬風格）", "金屬浪管 (防水特殊環境)", "白色塑膠線槽（簡約風格）"];
+const WIRE_GAUGE_OPTIONS = ["未選定", "14mm²(XLPE)", "22mm²(XLPE)", "30mm²(XLPE)", "38mm²(XLPE)", "50mm²(XLPE)"];
+const PAYMENT_OPTIONS = ["轉帳現金匯款", "30%定金，70%完工款", "Pay4U分期貸款12期零利率", "LINE PAY", "線上綠界信用卡支付"];
+
+// --- 預設資料 ---
+const DEFAULT_TECHNICIANS = [{ name: "王奕凱", phone: "0983650053", certs: ["乙級室內配線", "Tesla Powerwall 認證"] }, { name: "郭書淮", phone: "0927200557", certs: ["丙級室內配線"] }, { name: "林聖偉", phone: "0988606964", certs: [] }, { name: "李宣翰", phone: "0809093398", certs: ["甲種電匠"] }];
+const DEFAULT_SALES_TEAM = [{ name: "葉展志" }, { name: "吳佳蒨" }, { name: "姚芯妮" }, { name: "王奕凱" }, { name: "郭書淮" }];
+const DEFAULT_KOLS = [{ name: "無 / 自行開發" }, { name: "3C Tim哥" }, { name: "電腦王阿達" }, { name: "Joeman" }, { name: "水電爸爸" }];
+const DEFAULT_CERT_TYPES = ["乙級室內配線", "丙級室內配線", "甲種電匠", "Tesla Powerwall 認證", "太陽光電設置乙級", "工業配線"];
+
+// Firebase 初始化
+let app, auth, db;
+try {
+    if (getApps().length === 0) app = initializeApp(firebaseConfig);
+    else app = getApp();
+    auth = getAuth(app);
+    db = getFirestore(app);
+} catch (e) { console.error("Firebase Init Error:", e); }
+
+// =======================================================================
+// 2. 輔助函式庫
+// =======================================================================
+
+const Toast = ({ message, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-800/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 z-[10000] animate-fade-in-up border border-gray-700/50">
+      <CheckCircle size={20} className="text-green-400" />
+      <span className="text-sm font-medium tracking-wide">{message}</span>
+    </div>
+  );
+};
+
+const DialogModal = ({ config, onClose }) => {
+    if (!config) return null;
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[10000] p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl scale-100 transition-transform">
+                <div className="flex items-center gap-3 mb-4">
+                    {config.type === 'confirm' ? <HelpCircle className="text-orange-500" size={24}/> : <Info className="text-blue-500" size={24}/>}
+                    <h3 className="text-lg font-bold text-gray-900">{config.type === 'confirm' ? '請確認' : '系統提示'}</h3>
+                </div>
+                <p className="text-gray-600 mb-6 text-sm leading-relaxed whitespace-pre-wrap">{config.message}</p>
+                <div className="flex gap-3 justify-end">
+                    {config.type === 'confirm' && (
+                        <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition">取消</button>
+                    )}
+                    <button 
+                        onClick={() => { 
+                            if(config.onConfirm) config.onConfirm(); 
+                            onClose(); 
+                        }} 
+                        className={`px-4 py-2 text-white rounded-xl font-bold transition ${config.type === 'confirm' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    >
+                        確定
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const CountUp = ({ end, duration = 2000, onComplete }) => {
+  const [count, setCount] = useState(0);
+  const hasTriggered = useRef(false);
+
+  useEffect(() => {
+    let startTime = null;
+    let animationFrameId;
+    const endValue = parseInt(end, 10) || 0;
+    hasTriggered.current = false;
+
+    if (endValue === 0) {
+        setCount(0);
+        return;
+    }
+
+    const animate = (currentTime) => {
+      if (!startTime) startTime = currentTime;
+      const progress = Math.min((currentTime - startTime) / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 4); 
+      setCount(Math.floor(ease * endValue));
+
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(animate);
+      } else {
+        setCount(endValue);
+        if (onComplete && !hasTriggered.current) {
+            hasTriggered.current = true;
+            onComplete();
+        }
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [end, duration, onComplete]);
+
+  return <>{count}</>;
+};
+
+const compressImage = (file, maxWidth = 1024, quality = 0.7) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                let width = img.width;
+                let height = img.height;
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+    });
+};
+
+const getCollection = (dbInstance, collectionName, legacyMode = false) => {
+    if (isCustomDB || legacyMode) return collection(dbInstance, collectionName);
+    return collection(dbInstance, 'artifacts', APP_ID, 'public', 'data', collectionName);
+};
+
+const getDocRef = (dbInstance, collectionName, docId, legacyMode = false) => {
+    if (isCustomDB || legacyMode) return doc(dbInstance, collectionName, docId);
+    return doc(dbInstance, 'artifacts', APP_ID, 'public', 'data', collectionName, docId);
+};
+
+const calculateEndTime = (startTime, serviceType) => {
+    if (!startTime) return "";
+    const duration = SERVICE_DURATIONS[serviceType] || 2; 
+    const [h, m] = startTime.split(':').map(Number);
+    const date = new Date();
+    date.setHours(h, m);
+    date.setMinutes(date.getMinutes() + duration * 60);
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+};
+
+const normalizeOrderData = (id, data) => {
+    try {
+        let safeTechs = [];
+        if (Array.isArray(data.technicians)) safeTechs = data.technicians.map(t => (typeof t === 'string' ? { name: t } : t));
+        else if (data.technicianName) safeTechs = [{ name: data.technicianName }];
+
+        const safeConduits = Array.isArray(data.conduits) ? data.conduits : (data.conduitType ? [data.conduitType] : []);
+        const safeBreakers = Array.isArray(data.breakers) ? data.breakers : (data.breakerType ? [{ type: data.breakerType, count: data.breakerCount || 1 }] : []);
+
+        const safeProjectAmount = data.projectAmount ? String(data.projectAmount).replace(/[^\d]/g, '') : '';
+        const safePaidAmount = data.paidAmount ? String(data.paidAmount).replace(/[^\d]/g, '') : '';
+         
+        let safePlanningImages = Array.isArray(data.planningImages) ? data.planningImages : (data.planningImage ? [data.planningImage] : []);
+        let safeCompletionImages = Array.isArray(data.completionImages) ? data.completionImages : (data.completionImage ? [data.completionImage] : []);
+
+        return {
+            id, technicians: safeTechs, conduits: safeConduits, breakers: safeBreakers,
+            projectAmount: safeProjectAmount, paidAmount: safePaidAmount,
+            powerwallCount: parseInt(data.powerwallCount) || 0, gatewayCount: parseInt(data.gatewayCount) || 0,
+            status: data.status ? String(data.status) : "待場勘 (客戶預約)",
+            orderNumber: data.orderNumber !== undefined && data.orderNumber !== null ? String(data.orderNumber).trim() : "N/A",
+            clientName: data.clientName ? String(data.clientName) : "未命名客戶",
+            phone: (data.phone !== undefined && data.phone !== null) ? String(data.phone) : "", 
+            serviceType: data.serviceType ? String(data.serviceType) : SERVICE_TYPES[0],
+            date: data.date ? String(data.date) : "", time: data.time ? String(data.time) : "",
+            endTime: calculateEndTime(data.time, data.serviceType),
+            address: data.address ? String(data.address) : "", city: data.city ? String(data.city) : "",
+            notes: data.notes ? String(data.notes) : "", salesName: data.salesName ? String(data.salesName) : "",
+            kolName: data.kolName ? String(data.kolName) : "", paymentMethod: data.paymentMethod ? String(data.paymentMethod) : "",
+            touSetting: data.touSetting ? String(data.touSetting) : "", wireGauge: data.wireGauge ? String(data.wireGauge) : "",
+            gwLength: data.gwLength ? String(data.gwLength) : "", pwLength: data.pwLength ? String(data.pwLength) : "",
+            warrantyStartDate: data.warrantyStartDate ? String(data.warrantyStartDate) : "",
+            planningImages: safePlanningImages, completionImages: safeCompletionImages,
+            clientSignature: data.clientSignature ? String(data.clientSignature) : "", 
+            signedAt: data.signedAt ? data.signedAt : null, createdAt: data.createdAt || { seconds: 0 },
+            isDeal: !!data.isDeal, needsDrilling: !!data.needsDrilling, installType: data.installType || 'standard', powerSpec: data.powerSpec || POWER_SPEC_OPTIONS[0]
+        };
+    } catch (e) {
+        console.error("Data normalization error:", e);
+        return { id, status: "Error", clientName: "Data Error", orderNumber: "ERR", phone: "", technicians: [], conduits: [], breakers: [], planningImages: [], completionImages: [] };
+    }
+};
+
+const getCityColor = (city) => {
+    const c = String(city || "");
+    if (["基隆", "台北", "新北", "桃園", "新竹", "宜蘭"].some(x => c.includes(x))) return 'bg-blue-100 text-blue-700 border-blue-200';
+    if (["苗栗", "台中", "彰化", "南投", "雲林"].some(x => c.includes(x))) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    if (["嘉義", "台南", "高雄", "屏東"].some(x => c.includes(x))) return 'bg-orange-100 text-orange-700 border-orange-200';
+    if (["花蓮", "台東"].some(x => c.includes(x))) return 'bg-purple-100 text-purple-700 border-purple-200';
+    return 'bg-cyan-100 text-cyan-700 border-cyan-200';
+};
+
+const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
+
+const generateMessageContent = (order, baseUrl, isSimple = false) => {
+    if (!order) return "";
+    const techDisplay = (order.technicians || []).map(t => t.name).join("、") || order.technicianName || "未指派";
+    const displayOrderNo = String(order.orderNumber || `(ID:${(order.id||"").slice(-5)})`);
+    const status = String(order.status || "");
+    const serviceType = String(order.serviceType || "");
+    let title = "派案通知", actionText = "已安排技師為您服務", reminderText = "", equipmentText = "";
+    
+    const items = [];
+    if (order.powerwallCount > 0) items.push(`Powerwall x ${order.powerwallCount}`);
+    if (order.gatewayCount > 0) items.push(`Gateway x ${order.gatewayCount}`);
+    if (items.length > 0) equipmentText = `\n📦 設備：${items.join(' / ')}`;
+    
+    if (status.includes("完成") || status.includes("結案")) { title = "完工通知"; actionText = "您的案件已安裝完成，感謝您的支持"; }
+    else if ((status.includes("安裝") || status.includes("施工") || status.includes("已簽約") || serviceType.includes("安裝")) && !status.includes("待場勘")) { 
+        title = "施工預約通知"; actionText = "技師將於預定時間前往進行安裝工程"; 
+        reminderText = `\n\n💡【施工前溫馨提醒】\n1. 施工期間將會有約 30-60 分鐘的斷電時間。\n2. 請確認工作區域無雜物堆積。\n\n📱 請事先下載 Tesla APP。`; 
+    } else if (status.includes("場勘") || status.includes("報價")) { title = "場勘預約通知"; actionText = "技師將於預定時間前往進行場勘評估"; }
+    
+    const link = `${baseUrl.split('?')[0]}?order=${order.id}`;
+    if (isSimple) return `【${COMPANY_FULL_NAME} ${title}】\n單號：${displayOrderNo}\n客戶：${order.clientName}\n時間：${order.date} ${order.time}\n技師：${techDisplay}${equipmentText}\n詳情：${link}`;
+    return `【${COMPANY_FULL_NAME} ${title}】\n${order.clientName} 您好，${actionText}。\n\n📋 單號：${displayOrderNo}\n🛠️ 服務：${order.serviceType}${equipmentText}\n🔄 進度：${status}\n🕒 時間：${order.date} ${order.time}\n👷 技師：${techDisplay}\n\n📍 查看詳情：\n${link}${reminderText}`;
+};
+
+const generateWarrantyMessage = (order, baseUrl) => {
+    const link = `${baseUrl.split('?')[0]}?order=${order.id}&mode=warranty`;
+    return `【${COMPANY_FULL_NAME}】\n${order.clientName} 您好，恭喜您正式加入 Tesla Powerwall 儲能系統用戶行列！\n\n今天的安裝作業已順利完成，再次感謝您的配合與信任。您現在已具備停電備援與智慧能源管理能力，提升用電穩定與自主掌控。後續皆可透過 App 隨時掌握系統狀態。\n\n📍 您的專屬數位保固證書：\n${link}\n\n為了不斷提升服務品質，誠摯邀請您協助填寫一份滿意度問卷，並給予我們 Google 評論。\n只要完成以下兩項任務，就能獲得 7-11 City Cafe 兌換券兩張作為感謝禮：\n\n📝 填寫滿意度問卷： https://forms.gle/Lv2pyTuwyxgSACr47\n\n🌟 給予 Google 評論：https://reurl.cc/ZNdR0V （完成後請截圖回傳）\n\n若使用上有任何疑問，歡迎隨時與我們聯繫\n我們將持續為您提供支援。`;
+};
+
+const copyTextToClipboard = (text) => {
+    try { 
+        const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.left="-9999px"; 
+        document.body.appendChild(ta); ta.focus(); ta.select(); 
+        const successful = document.execCommand('copy'); document.body.removeChild(ta); 
+        return successful;
+    } catch (e) { return false; }
+};
+
+// =======================================================================
+// 3. UI 元件 (UI Components)
+// =======================================================================
+
+const SignaturePad = memo(({ onSave, title }) => {
+    const canvasRef = useRef(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const stopDrawing = () => setIsDrawing(false);
+    const startDrawing = (e) => { 
+        const canvas = canvasRef.current; if(!canvas) return;
+        const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect(); 
+        const x = (e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0)) - rect.left; 
+        const y = (e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0)) - rect.top; 
+        ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(x, y); setIsDrawing(true); 
+    };
+    const draw = (e) => { 
+        if (!isDrawing) return; e.preventDefault(); 
+        const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect(); 
+        const x = (e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0)) - rect.left; 
+        const y = (e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0)) - rect.top; 
+        ctx.lineTo(x, y); ctx.stroke(); 
+    };
+    const clearCanvas = () => { const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); };
+    const saveSignature = () => { const canvas = canvasRef.current; onSave(canvas.toDataURL('image/png')); };
+    
+    useEffect(() => { 
+        if (canvasRef.current) { const canvas = canvasRef.current; const parent = canvas.parentElement; if(parent) { canvas.width = parent.offsetWidth; canvas.height = 200; } }
+    }, []);
+    
+    return (
+        <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+            <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><PenTool size={16} /> {title || "客戶電子簽名"}</h4>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg mb-3 bg-gray-50 overflow-hidden touch-none"><canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="w-full h-[200px] cursor-crosshair"/></div>
+            <div className="flex gap-2"><button onClick={clearCanvas} className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 flex items-center justify-center gap-1"><Eraser size={14} /> 清除重簽</button><button onClick={saveSignature} className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center justify-center gap-1"><CheckCircle size={14} /> 確認簽署</button></div>
+        </div>
+    );
+});
+
+const TeslaPowerwallGraphic = memo(({ scale = 1.0 }) => (
+    <div className={`relative drop-shadow-2xl filter transition-transform hover:scale-105 duration-500 my-2 inline-block mx-2`} style={{ width: `${140 * scale}px`, height: `${220 * scale}px` }}>
+        <svg viewBox="0 0 140 220" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pwBodyGradient" x1="0" y1="0" x2="140" y2="220" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#FFFFFF"/><stop offset="0.5" stopColor="#F9FAFB"/><stop offset="1" stopColor="#E5E7EB"/></linearGradient><filter id="pw-green-glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="4.5" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect x="5" y="5" width="130" height="210" rx="3" fill="black" fillOpacity="0.25" filter="blur(8px)"/><rect x="0" y="0" width="135" height="215" rx="2" fill="url(#pwBodyGradient)" stroke="#D1D5DB" strokeWidth="0.5"/><path d="M125 0 H 135 V 215 H 125 Z" fill="#18181B" /><rect x="127.5" y="20" width="3.5" height="175" rx="1.5" fill="#22c55e" filter="url(#pw-green-glow)"><animate attributeName="opacity" values="0.3; 1; 0.3" duration="2.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.42 0 0.58 1; 0.42 0 0.58 1"/></rect><text x="67.5" y="80" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="11" fill="#374151" textAnchor="middle" letterSpacing="2" style={{opacity: 0.8}}>TESLA</text></svg>
+    </div>
+));
+
+const TeslaGatewayGraphic = memo(({ scale = 1.0 }) => (
+    <div className={`relative drop-shadow-xl filter transition-transform hover:scale-105 duration-500 my-2 inline-block mx-2`} style={{ width: `${80 * scale}px`, height: `${100 * scale}px` }}>
+        <svg viewBox="0 0 80 100" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="gwBodyGradient" x1="0" y1="0" x2="80" y2="100" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#FFFFFF"/><stop offset="1" stopColor="#F3F4F6"/></linearGradient></defs><rect x="5" y="5" width="70" height="90" rx="2" fill="black" fillOpacity="0.2" filter="blur(5px)"/><rect x="0" y="0" width="75" height="95" rx="2" fill="url(#gwBodyGradient)" stroke="#D1D5DB" strokeWidth="0.5"/><text x="37.5" y="52" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="14" fill="#374151" textAnchor="middle" letterSpacing="0.5">Gateway</text></svg>
+    </div>
+));
+
+const StatusBadge = memo(({ status }) => {
+    const safeStatus = String(status || '待確認');
+    const shortLabel = safeStatus.includes('(') ? safeStatus.substring(0, safeStatus.indexOf('(')).trim() : safeStatus;
+    let color = 'bg-gray-100 text-gray-600';
+    if (safeStatus.includes('場勘')) color = 'bg-red-100 text-red-700';
+    if (safeStatus.includes('報價')) color = 'bg-blue-100 text-blue-700';
+    if (safeStatus.includes('安裝') || safeStatus.includes('施工')) color = 'bg-purple-100 text-purple-700';
+    if (safeStatus.includes('完成') || safeStatus.includes('結案')) color = 'bg-green-100 text-green-700';
+    return <span className={`px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${color}`}>{shortLabel}</span>;
+});
+
+const PaymentProgressBar = memo(({ total, paid }) => {
+    const parseVal = (v) => { if (typeof v === 'number') return v; if (typeof v === 'string') return parseInt(v.replace(/,/g, '')) || 0; return 0; };
+    const safeTotal = parseVal(total); const safePaid = parseVal(paid);
+    if (!safeTotal) return null;
+    const percentage = Math.min(100, Math.max(0, (safePaid / safeTotal) * 100));
+    let colorClass = percentage >= 100 ? 'bg-green-500' : (percentage === 0 ? 'bg-gray-300' : 'bg-yellow-400');
+    let statusText = percentage >= 100 ? '已結清' : (percentage === 0 ? '未付款' : '部分付款');
+    return (
+        <div className="mt-2">
+            <div className="flex justify-between text-xs mb-1"><span className="text-gray-500 font-medium">收款進度</span><span className={`font-bold ${percentage >= 100 ? 'text-green-600' : 'text-orange-500'}`}>{statusText} ({Math.round(percentage)}%)</span></div>
+            <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden"><div className={`h-2 rounded-full ${colorClass} transition-all duration-500`} style={{ width: `${percentage}%` }}></div></div>
+            {safeTotal > safePaid && <div className="text-right mt-1"><span className="text-[10px] text-red-400">未收餘額: ${new Intl.NumberFormat('zh-TW').format(safeTotal - safePaid)}</span></div>}
+        </div>
+    );
+});
+
+const OrderTimeline = memo(({ currentStatus }) => {
+    const steps = [{ label: "預約場勘", match: ["待場勘"] }, { label: "場勘完成", match: ["已派場勘", "場勘完成"] }, { label: "報價/簽約", match: ["報價完成"] }, { label: "安排施工", match: ["已派安裝", "施工", "已簽約", "待派安裝"] }, { label: "完工驗收", match: ["安裝完成"] }, { label: "保固啟動", match: ["已結案"] }];
+    let activeIndex = 0;
+    const safeStatus = String(currentStatus || "");
+    if (safeStatus.includes("已結案")) activeIndex = 5;
+    else if (safeStatus.includes("安裝完成") || safeStatus.includes("待驗收")) activeIndex = 4;
+    else if (safeStatus.includes("已派安裝") || safeStatus.includes("施工") || safeStatus.includes("已簽約") || safeStatus.includes("待派安裝")) activeIndex = 3;
+    else if (safeStatus.includes("報價完成")) activeIndex = 2;
+    else if (safeStatus.includes("場勘完成") || safeStatus.includes("已派場勘")) activeIndex = 1;
+    return (
+        <div className="w-full mb-8 px-2">
+            <div className="flex justify-between items-center relative z-10">
+                {steps.map((step, idx) => {
+                    const isActive = idx <= activeIndex;
+                    return (
+                        <div key={idx} className="flex flex-col items-center group w-10 relative">
+                            {isActive && idx === activeIndex && <div className="absolute w-8 h-8 rounded-full bg-blue-400/50 animate-ping -z-10"></div>}
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all duration-500 border-2 z-10 ${isActive ? 'bg-gradient-to-br from-blue-500 to-blue-600 border-transparent text-white shadow-lg shadow-blue-300 scale-110' : 'bg-gray-800 border-gray-600 text-gray-500'}`}>{isActive ? <Check size={14} strokeWidth={3} /> : idx + 1}</div>
+                            <span className={`text-[9px] mt-2 font-medium absolute -bottom-6 w-20 text-center transition-colors duration-300 ${isActive ? 'text-blue-300 font-bold drop-shadow-sm' : 'text-gray-600'}`}>{step.label}</span>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="absolute top-4 left-4 right-4 h-1 bg-gray-700 rounded-full -z-10 overflow-hidden mt-1 mx-2"><div className="h-full bg-gradient-to-r from-blue-600 to-cyan-400 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(59,130,246,0.8)]" style={{ width: `${(activeIndex / (steps.length - 1)) * 100}%` }}></div></div>
+        </div>
+    );
+});
+
+const SystemSpecsCard = memo(({ pwCount, gwCount }) => {
+    const totalCapacity = (pwCount || 0) * 13.5;
+    const totalPower = (pwCount || 0) * 5; 
+    if(!pwCount && !gwCount) return null;
+    return (
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 mt-4 backdrop-blur-md">
+            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2"><Activity size={14} className="text-blue-400"/>系統規格預覽</h4>
+            <div className="grid grid-cols-3 gap-2">
+                <div className="bg-black/30 rounded-xl p-2 text-center border border-white/5"><p className="text-[10px] text-gray-500 mb-1">總容量</p><p className="text-lg font-bold text-white font-mono">{totalCapacity}<span className="text-xs font-normal text-gray-400 ml-1">kWh</span></p></div>
+                <div className="bg-black/30 rounded-xl p-2 text-center border border-white/5"><p className="text-[10px] text-gray-500 mb-1">輸出功率</p><p className="text-lg font-bold text-white font-mono">{totalPower}<span className="text-xs font-normal text-gray-400 ml-1">kW</span></p></div>
+                <div className="bg-black/30 rounded-xl p-2 text-center border border-white/5"><p className="text-[10px] text-gray-500 mb-1">備援能力</p><p className="text-lg font-bold text-green-400 font-mono">100%</p></div>
+            </div>
+        </div>
+    );
+});
+
+const EcoImpactCard = memo(({ pwCount }) => {
+    if(!pwCount) return null;
+    const co2Saved = Math.round(pwCount * 13.5 * 0.5 * 365); 
+    return (
+        <div className="bg-gradient-to-r from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-2xl p-4 mt-4 backdrop-blur-md flex items-center gap-4">
+            <div className="p-3 bg-green-500/20 rounded-full text-green-400"><Leaf size={24} /></div>
+            <div><h4 className="text-sm font-bold text-white mb-1">您的綠色貢獻</h4><p className="text-xs text-gray-300">預計每年可減少 <span className="text-green-400 font-bold text-base font-mono">{co2Saved}</span> kg 碳排放，相當於種植了 <span className="text-green-400 font-bold text-base font-mono">{Math.round(co2Saved / 10)}</span> 棵樹。</p></div>
+        </div>
+    );
+});
+
+const FAQSection = memo(({ status }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const getFAQs = (s) => {
+        if (s.includes("場勘")) return [{ q: "場勘需要準備什麼？", a: "請準備近一期的電費單，並確認電箱周圍無雜物遮擋。" }, { q: "場勘主要目的在於哪個地方", a: "主要希望詳細確認貴府上主線路的電纜線徑規格，總斷路器安培數，並且與安裝過程接線安排方式與您實際溝通並且完成此次工程內容。" }];
+        if (s.includes("安裝") || s.includes("施工")) return [{ q: "安裝當天會斷電嗎？", a: "會的，施工期間會有約 30-60 分鐘的斷電時間，請先儲存電腦檔案。" }, { q: "需要我在家嗎？", a: "建議您在場，以便技師說明設備位置與操作教學。" }];
+        if (s.includes("完成") || s.includes("結案")) return [{ q: "如何監控發電量？", a: "請下載 Tesla App 並使用註冊 email 登入即可查看即時數據。" }, { q: "保固多久？", a: "Powerwall 提供 10 年原廠保固，詳細條款請見保固證書。" }];
+        return [];
+    };
+    const faqs = getFAQs(status || "");
+    if (faqs.length === 0) return null;
+    return (
+        <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden mb-6">
+            <button onClick={() => setIsOpen(!isOpen)} className="w-full flex justify-between items-center p-4 bg-gray-50 hover:bg-gray-100 transition">
+                <h4 className="text-sm font-bold text-gray-700 flex items-center gap-2"><HelpCircle size={16} className="text-blue-500"/> 常見疑問與指引</h4>
+                {isOpen ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+            </button>
+            {isOpen && (<div className="p-4 space-y-3">{faqs.map((faq, i) => (<div key={i} className="bg-blue-50/50 p-3 rounded-xl"><p className="text-xs font-bold text-blue-700 mb-1">Q: {faq.q}</p><p className="text-xs text-gray-600">A: {faq.a}</p></div>))}</div>)}
+        </div>
+    );
+});
+
+const TechnicianCard = memo(({ orderTechs, allTechs, isDarkMode = false }) => {
+    if (!orderTechs || !Array.isArray(orderTechs) || orderTechs.length === 0) return null;
+    const validTechs = orderTechs.filter(t => t && t.name);
+    if (validTechs.length === 0) return null;
+    const richTechs = validTechs.map(ot => { const found = Array.isArray(allTechs) ? allTechs.find(t => t && t.name === ot.name) : null; return found || ot; });
+    return (
+        <div className={`${isDarkMode ? 'bg-[#1E293B] border-gray-700 shadow-2xl' : 'bg-white border-gray-100 shadow-sm'} rounded-2xl p-5 border mb-6 relative overflow-hidden group hover:shadow-md transition-all`}>
+            <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-800'} text-sm font-bold mb-4 flex items-center gap-2`}>
+                <span className={`w-8 h-8 rounded-lg ${isDarkMode ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-600'} flex items-center justify-center`}><User size={18}/></span>
+                {isDarkMode ? "安裝技師團隊" : "認證工程團隊"}
+            </h3>
+            <div className="space-y-3 relative z-10">
+                {richTechs.map((tech, idx) => (
+                    <div key={idx} className={`flex items-center gap-4 ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50/50 border-gray-100'} p-3 rounded-xl border`}>
+                        <div className={`w-12 h-12 ${isDarkMode ? 'bg-gray-700 text-gray-300 border-gray-600' : 'bg-white text-gray-400 border-gray-200'} rounded-full flex items-center justify-center font-bold text-lg border shadow-sm relative overflow-hidden`}>
+                            {tech.avatar ? (<img src={tech.avatar} alt={tech.name} className="w-full h-full object-cover"/>) : (tech.name?.[0])}
+                            {!tech.avatar && (<div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center"><Check size={10} className="text-white" strokeWidth={3}/></div>)}
+                        </div>
+                        <div className="flex-1">
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between">
+                                    <span className={`font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{tech.name || "未命名技師"}</span>
+                                    <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-medium tracking-wide">DEPower PRO</span>
+                                </div>
+                                {tech.phone && ( <a href={`tel:${tech.phone}`} className={`inline-flex items-center gap-1.5 text-xs font-bold ${isDarkMode ? 'text-gray-300 bg-gray-700 border-gray-600 hover:border-blue-500 hover:text-blue-400' : 'text-gray-600 bg-white border-gray-200 hover:border-blue-300 hover:text-blue-600'} border px-3 py-1.5 rounded-lg transition w-fit mt-1 shadow-sm`}> <Phone size={12} className="text-green-500" fill="currentColor"/> 撥打給技師 ({tech.phone}) </a> )}
+                            </div>
+                            {tech.certs && Array.isArray(tech.certs) && tech.certs.length > 0 && ( <div className="flex flex-wrap gap-1 mt-2"> {tech.certs.slice(0, 2).map((c, i) => ( <span key={i} className={`text-[10px] ${isDarkMode ? 'text-gray-400 bg-gray-800 border-gray-700' : 'text-gray-500 bg-white border-gray-200'} px-1.5 py-0.5 rounded border flex items-center gap-0.5`}> <Award size={10}/> {c} </span> ))} {tech.certs.length > 2 && <span className="text-[10px] text-gray-400">+{tech.certs.length - 2}</span>} </div> )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+});
+
+// 重構：將重複的系統核心配置區塊抽取成獨立元件，以節省代碼行數
+const SystemCoreConfigBlock = memo(() => (
+    <div className="space-y-4 animate-fade-in-up delay-500">
+        <div className="flex items-center justify-between px-1"> <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"> <Server size={14}/> 系統核心配置 </h3> <span className="text-[10px] bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-800">Verified</span> </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-gradient-to-br from-[#1E293B] to-[#0F172A] p-5 rounded-2xl border border-orange-500/30 relative overflow-hidden group hover:border-orange-500/60 transition-all duration-300"> <div className="absolute top-0 right-0 w-20 h-20 bg-orange-500/10 blur-[40px] rounded-full group-hover:bg-orange-500/20 transition"></div> <div className="flex items-start gap-4 relative z-10"> <div className="p-3 bg-orange-500/10 rounded-xl border border-orange-500/20 text-orange-400 group-hover:scale-110 transition-transform"> <Zap size={24} /> </div> <div> <p className="text-[10px] text-orange-400/80 font-bold uppercase mb-1 tracking-wider">動力傳輸核心</p> <h4 className="text-white font-bold text-lg mb-0.5">"Tesla Powerwall" 嚴選華新麗華 2026年份</h4> <p className="text-xs text-gray-400 font-medium">XLPE (交連聚乙烯) 絕緣電纜 600V</p> </div> </div> </div>
+            <div className="bg-gradient-to-br from-[#1E293B] to-[#0F172A] p-5 rounded-2xl border border-red-500/30 relative overflow-hidden group hover:border-red-500/60 transition-all duration-300"> <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/10 blur-[40px] rounded-full group-hover:bg-red-500/20 transition"></div> <div className="flex items-start gap-4 relative z-10"> <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20 text-red-400 group-hover:scale-110 transition-transform"> <ShieldCheck size={24} /> </div> <div> <p className="text-[10px] text-red-400/80 font-bold uppercase mb-1 tracking-wider">安全防護樞紐</p> <h4 className="text-white font-bold text-lg mb-0.5">DEPower 指定使用德國 ABB 空氣開關斷路器</h4> <p className="text-xs text-gray-400 font-medium">守護您的用電安全</p> </div> </div> </div>
+            <div className="bg-gradient-to-br from-[#1E293B] to-[#0F172A] p-5 rounded-2xl border border-cyan-500/30 relative overflow-hidden group hover:border-cyan-500/60 transition-all duration-300"> <div className="absolute top-0 right-0 w-20 h-20 bg-cyan-500/10 blur-[40px] rounded-full group-hover:bg-cyan-500/20 transition"></div> <div className="flex items-start gap-4 relative z-10"> <div className="p-3 bg-cyan-500/10 rounded-xl border border-cyan-500/20 text-cyan-400 group-hover:scale-110 transition-transform"> <LinkIcon size={24} /> </div> <div> <p className="text-[10px] text-cyan-400/80 font-bold uppercase mb-1 tracking-wider">極致工藝細節</p> <h4 className="text-white font-bold text-lg mb-0.5">台灣凱士士 KSS</h4> <p className="text-xs text-gray-400 font-medium">嚴選壓接端子與線管遮蔽材料</p> </div> </div> </div>
+            <div className="bg-gradient-to-br from-[#1E293B] to-[#0F172A] p-5 rounded-2xl border border-rose-500/30 relative overflow-hidden group hover:border-rose-500/60 transition-all duration-300"> <div className="absolute top-0 right-0 w-20 h-20 bg-rose-500/10 blur-[40px] rounded-full group-hover:bg-rose-500/20 transition"></div> <div className="flex items-start gap-4 relative z-10"> <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20 text-rose-400 group-hover:scale-110 transition-transform"> <Hammer size={24} /> </div> <div> <p className="text-[10px] text-rose-400/80 font-bold uppercase mb-1 tracking-wider">抗震結構權威</p> <h4 className="text-white font-bold text-lg mb-0.5">Hilti 錨栓系統</h4> <p className="text-xs text-gray-400 font-medium">抗震耐燃．堅若磐石</p> </div> </div> </div>
+        </div>
+    </div>
+));
+
+// 重構：安裝細節確認區塊（深色版 - 客戶用）
+const InstallationDetailsBlock = memo(({ selectedOrder }) => (
+    <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-5 border border-gray-700/50 space-y-4 animate-fade-in-up delay-600">
+        <h3 className="text-sm font-bold text-gray-400 flex items-center gap-2 border-b border-gray-700 pb-2"><Settings size={16}/> 安裝細節確認</h3>
+        <div className="space-y-3 text-sm text-gray-300">
+            <div className="flex justify-between items-center py-1"><span className="text-gray-500 flex items-center gap-2"><Clock size={16} className="text-blue-500"/>電價設定</span><span className="font-bold text-white">{selectedOrder.touSetting}</span></div>
+            {selectedOrder.gwLength && (<div className="flex justify-between items-center py-1"><span className="text-gray-500 flex items-center gap-2"><Ruler size={16} className="text-green-500"/>GW 主線</span><span className="font-bold text-white">{selectedOrder.gwLength}</span></div>)}
+            {selectedOrder.pwLength && (<div className="flex justify-between items-center py-1"><span className="text-gray-500 flex items-center gap-2"><Ruler size={16} className="text-green-500"/>GW-PW 線</span><span className="font-bold text-white">{selectedOrder.pwLength}</span></div>)}
+            {selectedOrder.conduits && selectedOrder.conduits.length > 0 && ( <div className="flex justify-between items-start py-1"> <span className="text-gray-500 flex items-center gap-2 mt-0.5"><Package size={16} className="text-purple-500"/>遮蔽物</span> <div className="text-right"> {selectedOrder.conduits.map((c,i)=><div key={i} className="font-bold text-white text-sm">{c}</div>)} </div> </div> )}
+            <div className="flex justify-between items-center py-1"><span className="text-gray-500 flex items-center gap-2"><Activity size={16} className="text-orange-500"/>主線徑</span><span className="font-bold text-white">{selectedOrder.wireGauge}</span></div>
+            <div className="flex justify-between items-start py-1"><span className="text-gray-500 flex items-center gap-2 mt-1"><ZapOff size={16} className="text-red-500"/>斷路器</span><div className="text-right">{(selectedOrder.breakers || []).map((b,i)=><div key={i} className="font-bold text-white">{b.type} (x{b.count})</div>)}{(!selectedOrder.breakers || selectedOrder.breakers.length===0) && <span className="text-gray-500">未選定</span>}</div></div>
+        </div>
+    </div>
+));
+
+// 圖片藝廊畫塊 (相容燈箱)
+const ImageGalleryBlock = memo(({ title, Icon, images, onImageClick, delayClass }) => {
+    if (!images || images.length === 0) return null;
+    return (
+        <div className={`bg-white/5 border border-gray-700 rounded-2xl p-4 ${delayClass}`}>
+            <h4 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2 uppercase tracking-widest">
+                <Icon size={16} className={title.includes("完工") ? "text-green-400" : "text-blue-400"}/> {title}
+            </h4>
+            <div className="flex overflow-x-auto gap-3 pb-2 snap-x scrollbar-hide">
+                {images.map((img, idx) => (
+                    <div key={idx} onClick={() => onImageClick(img)} className="flex-shrink-0 w-64 aspect-video snap-center relative rounded-xl overflow-hidden group border border-gray-600 cursor-pointer">
+                        <img src={img} alt={`${title} ${idx}`} className="w-full h-full object-cover transform transition duration-500 group-hover:scale-105" />
+                        <div className="absolute bottom-1 right-1 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm">
+                            {idx + 1}/{images.length}
+                        </div>
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center">
+                            <Eye size={24} className="text-white opacity-0 group-hover:opacity-100 transition drop-shadow-md" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+            {title.includes("完工") && <p className="text-[10px] text-gray-600 mt-2 text-center">此影像紀錄將永久存檔於您的數位保固證書中</p>}
+        </div>
+    );
+});
+
+
+const CompanyFooter = memo(({ darkMode = false, logo }) => (
+  <div className={`text-center mt-12 mb-8 space-y-2 border-t pt-8 ${darkMode ? 'border-gray-800' : 'border-gray-100'}`}>
+    {logo && <img src={logo} alt={COMPANY_NAME} className="h-12 mx-auto mb-2 opacity-90 object-contain" />}
+    <p className={`text-xs tracking-widest uppercase ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Powering Your Future</p>
+    <p className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>{COMPANY_FULL_NAME}</p>
+    <div className={`flex justify-center gap-4 text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+        <a href={`tel:${COMPANY_PHONE.replace(/-/g,'')}`} className={`transition-colors ${darkMode ? 'text-gray-300 hover:text-white' : 'hover:text-blue-600'}`}>聯絡我們</a>
+        <span className={darkMode ? 'text-gray-600' : ''}>•</span>
+        <span className="opacity-70">{SYSTEM_VERSION}</span>
+    </div>
+  </div>
+));
+
+const DashboardCard = memo(({ title, count, color, icon: Icon, onClick, isActive }) => (
+    <div onClick={onClick} className={`rounded-2xl p-4 text-white shadow-lg cursor-pointer transition-all duration-200 transform hover:scale-105 active:scale-95 ${isActive ? 'ring-4 ring-offset-2 ring-blue-300 scale-105' : 'opacity-90 hover:opacity-100'}`} style={{ backgroundColor: color }}>
+        <div className="flex justify-between items-start">
+            <div><p className="text-xs opacity-90 font-medium mb-1 tracking-wider">{title}</p><h3 className="text-3xl font-bold">{count || 0}</h3></div>
+            <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm"><Icon size={20} /></div>
+        </div>
+    </div>
+));
+
+const StatCard = memo(({ title, value, icon: Icon, colorClass }) => (
+  <div className={`p-5 rounded-2xl text-white shadow-lg ${colorClass}`}>
+    <div className="flex justify-between items-start">
+      <div><p className="text-xs opacity-80 font-medium mb-1">{title}</p><h3 className="text-2xl font-bold">{value}</h3></div>
+      <div className="p-2 bg-white/20 rounded-lg"><Icon size={20} /></div>
+    </div>
+  </div>
+));
+
+const CalendarView = memo(({ orders, onSelectOrder, setViewDateCb, viewDate }) => {
+    const today = new Date();
+    
+    const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+    const isSameDay = (d1, d2) => d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
+
+    const daysInMonth = getDaysInMonth(viewDate);
+    const startDay = getFirstDayOfMonth(viewDate);
+    
+    const days = [];
+    for (let i = 0; i < startDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(viewDate.getFullYear(), viewDate.getMonth(), i));
+
+    const getDailyOrders = (date) => {
+        if (!date) return [];
+        return orders.filter(o => {
+            if (!o.date) return false;
+            const oDate = new Date(o.date);
+            return isSameDay(oDate, date);
+        }).sort((a,b) => (a.time || "00:00").localeCompare(b.time || "00:00"));
+    };
+
+    const calculateDailyLoad = (dailyOrders) => {
+        let totalHours = 0;
+        dailyOrders.forEach(o => {
+            const duration = SERVICE_DURATIONS[o.serviceType] || 2;
+            totalHours += duration;
+        });
+        return Math.min(100, (totalHours / 8) * 100); 
+    };
+
+    const [selectedDate, setSelectedDate] = useState(today);
+
+    return (
+        <div className="bg-white rounded-3xl shadow-xl border border-slate-100 max-w-2xl mx-auto mb-20 overflow-hidden">
+            <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+                <button onClick={() => setViewDateCb(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} className="p-2 bg-white text-slate-500 rounded-xl shadow-sm hover:text-blue-600 transition"><ChevronLeft size={20}/></button>
+                <div className="text-center">
+                    <h2 className="text-lg font-bold text-slate-800">{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</h2>
+                    <p className="text-xs text-slate-400 font-medium tracking-wide">SCHEDULE OVERVIEW</p>
+                </div>
+                <button onClick={() => setViewDateCb(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} className="p-2 bg-white text-slate-500 rounded-xl shadow-sm hover:text-blue-600 transition"><ChevronRight size={20}/></button>
+            </div>
+            
+            <div className="p-4">
+                <div className="grid grid-cols-7 text-center mb-3">
+                    {['日', '一', '二', '三', '四', '五', '六'].map((d, i) => (
+                        <div key={d} className={`text-xs font-bold ${i === 0 || i === 6 ? 'text-orange-400' : 'text-slate-400'}`}>{d}</div>
+                    ))}
+                </div>
+                
+                <div className="grid grid-cols-7 gap-2 mb-6">
+                    {days.map((day, idx) => {
+                        const isToday = day && isSameDay(day, today);
+                        const isSelected = day && isSameDay(day, selectedDate);
+                        const dailyOrders = getDailyOrders(day);
+                        const hasSurvey = dailyOrders.some(o => o.serviceType.includes('場勘'));
+                        const hasInstall = dailyOrders.some(o => o.serviceType.includes('安裝') || o.status.includes('施工'));
+                        const load = calculateDailyLoad(dailyOrders);
+                        
+                        return (
+                            <div key={idx} onClick={() => day && setSelectedDate(day)} 
+                                 className={`aspect-[4/5] rounded-2xl flex flex-col items-center pt-2 cursor-pointer transition-all relative border 
+                                 ${!day ? 'invisible' : ''}
+                                 ${isSelected 
+                                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200 ring-offset-2 z-10 scale-105 shadow-md' 
+                                    : (isToday ? 'bg-slate-800 text-white border-slate-700 shadow-md' : 'bg-white border-slate-100 hover:border-blue-300 hover:shadow-sm')}
+                                 `}>
+                                {day ? (
+                                    <>
+                                        <span className={`text-sm font-bold mb-1 ${isToday ? 'text-white' : (isSelected ? 'text-blue-700' : 'text-slate-700')}`}>{day.getDate()}</span>
+                                        <div className="flex gap-1 mt-auto mb-2 px-1">
+                                            {hasSurvey && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-sm" title="場勘"></div>}
+                                            {hasInstall && <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-sm" title="安裝"></div>}
+                                        </div>
+                                        {load > 0 && (
+                                            <div className="w-full px-2 pb-2">
+                                                <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                                                    <div className={`h-full rounded-full ${load > 80 ? 'bg-red-400' : 'bg-green-400'}`} style={{ width: `${load}%` }}></div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : null}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 animate-fade-in-up">
+                    <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-200/60">
+                        <div>
+                            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                                <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-md">{selectedDate.getDate()}日</span>
+                                行程安排
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-0.5">{selectedDate.getFullYear()}/{selectedDate.getMonth()+1} - {['週日','週一','週二','週三','週四','週五','週六'][selectedDate.getDay()]}</p>
+                        </div>
+                        {getDailyOrders(selectedDate).length > 0 && (
+                            <div className="text-right">
+                                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">預估工時</p>
+                                <div className="flex items-center gap-1 justify-end">
+                                    <Activity size={14} className={calculateDailyLoad(getDailyOrders(selectedDate)) > 80 ? 'text-red-500' : 'text-green-500'} />
+                                    <span className="text-sm font-bold text-slate-700">{calculateDailyLoad(getDailyOrders(selectedDate)).toFixed(0)}%</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    
+                    {getDailyOrders(selectedDate).length > 0 ? (
+                        <div className="space-y-0 relative">
+                            <div className="absolute left-[2.25rem] top-2 bottom-4 w-0.5 bg-slate-200"></div>
+
+                            {getDailyOrders(selectedDate).map((order) => {
+                                const isSurvey = order.serviceType.includes('場勘');
+                                const endTime = order.endTime || calculateEndTime(order.time, order.serviceType);
+                                
+                                return (
+                                    <div key={order.id} className="relative pl-14 py-3 group">
+                                        <div className={`absolute left-0 top-3 w-10 text-center z-10 transition-transform group-hover:scale-110`}>
+                                            <span className="block text-xs font-bold text-slate-700">{order.time}</span>
+                                            <span className="block text-[10px] text-slate-400">{endTime}</span>
+                                        </div>
+                                        
+                                        <div className={`absolute left-[2.25rem] top-5 w-3 h-3 -ml-1.5 rounded-full border-2 border-white shadow-sm z-10 ${isSurvey ? 'bg-red-500' : 'bg-purple-600'}`}></div>
+
+                                        <div onClick={() => onSelectOrder(order)} 
+                                             className={`bg-white p-4 rounded-xl border shadow-sm cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 border-l-4 ${isSurvey ? 'border-l-red-500 border-slate-100' : 'border-l-purple-600 border-slate-100'}`}>
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${isSurvey ? 'bg-red-50 text-red-600' : 'bg-purple-50 text-purple-600'}`}>
+                                                        {isSurvey ? '場勘' : '施工'}
+                                                    </span>
+                                                    <h4 className="font-bold text-slate-800 text-sm line-clamp-1">{order.clientName}</h4>
+                                                </div>
+                                                <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-500 transition"/>
+                                            </div>
+                                            
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-start gap-2 text-xs text-slate-500">
+                                                    <MapPin size={14} className="mt-0.5 flex-shrink-0 text-slate-400"/>
+                                                    <span className="line-clamp-1">{order.city} {order.address}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                    <User size={14} className="flex-shrink-0 text-slate-400"/>
+                                                    <span className="truncate">
+                                                        {(order.technicians || []).map(t => t.name).join('、') || "待指派"}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="text-center py-10">
+                            <div className="bg-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm border border-slate-100">
+                                <Calendar size={24} className="text-slate-300" />
+                            </div>
+                            <p className="text-sm font-bold text-slate-400">本日無安排行程</p>
+                            <p className="text-xs text-slate-300 mt-1">點擊右下角「+」新增預約</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+});
+
+// 將清單獨立成一個元件以提升渲染效能
+const OrderCard = memo(({ order, onDelete, onEdit, onPreview, onShareLine, onCopy, onShareSMS, onCopyWarranty }) => {
+    const isCompleted = (order.status || "").includes('安裝完成') || (order.status || "").includes('結案') || (order.status || "").includes('驗收');
+    return (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 relative overflow-hidden">
+          <button onClick={(e) => { e.stopPropagation(); onDelete(order); }} className="absolute top-4 right-4 text-gray-300 hover:text-red-500 p-1 z-10"><Trash2 size={18} /></button>
+          <div className="flex justify-between items-start mb-3 pr-8">
+            <div className="flex gap-2 items-center">
+                <span className="font-mono text-xs text-gray-400">#{order.orderNumber}</span>
+                {order.city && <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${getCityColor(order.city)}`}>{order.city}</span>}
+                <StatusBadge status={order.status} />
+            </div>
+            <div className="flex gap-2">
+               <button onClick={() => onEdit(order)} className="text-gray-400 hover:text-blue-600 p-2 bg-gray-50 rounded-full"><Edit2 size={16} /></button>
+               <button onClick={() => onPreview(order, isCompleted)} className="text-blue-600 text-xs font-medium flex items-center bg-blue-50 px-3 py-1 rounded-lg">預覽 <ArrowRight size={12} className="ml-1"/></button>
+            </div>
+          </div>
+          <h3 className="text-lg font-bold mb-1 flex items-center gap-2">{order.clientName}{order.isDeal && <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full">已成交</span>}</h3>
+          
+          <div className="space-y-1 mt-2 text-sm text-gray-600">
+            <div className="flex items-center"><Wrench size={14} className="mr-2 text-gray-400" />{order.serviceType}</div>
+            <div className="flex items-center"><Clock size={14} className="mr-2 text-gray-400" />{order.date} {order.time}</div>
+          </div>
+
+          {/* 設備徽章：如果案件中含有 Powerwall 或 Gateway 數量大於 0，就會顯示在這裡 */}
+          {(order.powerwallCount > 0 || order.gatewayCount > 0) && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                  {order.powerwallCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-700 bg-yellow-50 px-2 py-1 rounded-lg border border-yellow-100">
+                          <Zap size={12} className="text-yellow-500" fill="currentColor" />
+                          Powerwall x {order.powerwallCount}
+                      </span>
+                  )}
+                  {order.gatewayCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+                          <Database size={12} className="text-blue-500" />
+                          Gateway x {order.gatewayCount}
+                      </span>
+                  )}
+              </div>
+          )}
+
+          <PaymentProgressBar total={order.projectAmount} paid={order.paidAmount} />
+            
+          <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-3 gap-2">
+              <button onClick={() => onShareLine(order)} className="flex items-center justify-center gap-1 py-2 rounded-lg bg-[#06C755] text-white text-sm font-medium"><MessageCircle size={16} fill="white" /> LINE</button>
+              <button onClick={() => onCopy(order)} className="flex items-center justify-center gap-1 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm font-medium"><Clipboard size={16} /> 複製內文</button>
+              {isCompleted ? (
+                  <button onClick={() => onCopyWarranty(order)} className="flex items-center justify-center gap-1 py-2 rounded-lg bg-yellow-400 text-white text-sm font-bold hover:bg-yellow-500"><LinkIcon size={16} /> 保固連結</button>
+              ) : (
+                  <button onClick={() => onShareSMS(order)} className="flex items-center justify-center gap-1 py-2 rounded-lg bg-blue-500 text-white text-sm font-medium"><MessageSquare size={16} /> 簡訊</button>
+              )}
+          </div>
+        </div>
+    );
+});
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, errorInfo) { console.error("UI Error:", error, errorInfo); }
+  render() { 
+      if (this.state.hasError) return (<div className="p-5 bg-red-50 text-red-600 rounded-2xl text-center"><h3 className="font-bold">發生錯誤</h3><button onClick={()=>window.location.reload()} className="mt-2 underline">重新整理</button></div>);
+      return this.props.children; 
+  }
+}
+
+const PermissionErrorModal = ({ onClose }) => (
+  <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-6 animate-fade-in backdrop-blur-sm">
+    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+      <div className="bg-red-500 p-4 flex items-center gap-3"><Shield className="text-white w-8 h-8" /><h3 className="text-lg font-bold text-white">資料庫權限不足</h3></div>
+      <div className="p-6 space-y-4"><p className="text-gray-600 text-sm leading-relaxed">系統連線成功，但被 Firebase 防火牆擋下了。</p><button onClick={onClose} className="w-full bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition">我知道了，我去設定</button></div>
+    </div>
+  </div>
+);
+
+const Loading = memo(({ text }) => (
+  <div className="flex flex-col items-center justify-center h-screen bg-gray-50 z-[9999]">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+    <p className="text-gray-500 text-sm animate-pulse">{text || "載入中..."}</p>
+  </div>
+));
+
+// =======================================================================
+// 4. Main App Component
+// =======================================================================
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [dbStatus, setDbStatus] = useState("連線中...");
+    
+  const [urlParams] = useState(() => new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''));
+  const urlOrderId = urlParams.get('order');
+  const urlMode = urlParams.get('mode');
+  const isClientPortal = !!urlOrderId;
+
+  const [view, setView] = useState('initializing');
+  const [clientMode, setClientMode] = useState('standard');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [useLegacyPath, setUseLegacyPath] = useState(false); 
+  const [customConfigInput, setCustomConfigInput] = useState('');
+  const [showPermissionError, setShowPermissionError] = useState(false);
+  
+  const [orders, setOrders] = useState([]);
+  const [technicians, setTechnicians] = useState([]);
+  const [salesTeam, setSalesTeam] = useState([]);
+  const [kols, setKols] = useState([]);
+  const [certTypes, setCertTypes] = useState([]);
+  const [dbConduits, setDbConduits] = useState([]);
+  
+  const [companyStats, setCompanyStats] = useState({ totalInstalledPw: 0 });
+  const [localPwCount, setLocalPwCount] = useState(0);
+  const [companyBranding, setCompanyBranding] = useState({ logo: null });
+
+  const [calendarViewDate, setCalendarViewDate] = useState(new Date());
+
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [passcode, setPasscode] = useState('');
+  
+  // Custom Modals State
+  const [toastMsg, setToastMsg] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [modalConfig, setModalConfig] = useState(null);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortType, setSortType] = useState('date_desc'); 
+
+  const [manageTab, setManageTab] = useState('technician');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [editingPersonId, setEditingPersonId] = useState(null);
+  
+  const [personName, setPersonName] = useState('');
+  const [personPhone, setPersonPhone] = useState('');
+  const [personCerts, setPersonCerts] = useState([]);
+  const [personAvatar, setPersonAvatar] = useState(null);
+  const [newCertType, setNewCertType] = useState('');
+  const [showCertManager, setShowCertManager] = useState(false);
+  const [techSearch, setTechSearch] = useState(''); 
+  const [statMonth, setStatMonth] = useState(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; });
+
+  const [uploadedPlanningImages, setUploadedPlanningImages] = useState([]);
+  const [uploadedCompletionImages, setUploadedCompletionImages] = useState([]);
+  
+  const [clientSignature, setClientSignature] = useState(null);
+  
+  // 燈箱檢視狀態
+  const [viewingImage, setViewingImage] = useState(null);
+
+  const [formData, setFormData] = useState({
+    clientName: '', phone: '', address: '', city: '',
+    serviceType: SERVICE_TYPES[0], date: '', time: '', technicians: [], status: STATUS_OPTIONS[0], notes: '',
+    powerwallCount: 0, gatewayCount: 0, isDeal: false,
+    salesName: "", kolName: "", 
+    powerSpec: POWER_SPEC_OPTIONS[0], needsDrilling: false,
+    touSetting: TOU_OPTIONS[0],
+    conduits: [], projectAmount: '', paidAmount: '', paymentMethod: PAYMENT_OPTIONS[0],
+    installType: 'standard', wireGauge: WIRE_GAUGE_OPTIONS[0],
+    gwLength: '', pwLength: '', breakers: [], warrantyStartDate: '',
+    planningImages: [], 
+    completionImages: [], 
+    clientSignature: ''
+  });
+
+  const showToast = useCallback((msg) => { setToastMsg(msg); setShowSuccess(true); }, []);
+  const showAlert = useCallback((message) => { setModalConfig({ type: 'alert', message }); }, []);
+  const showConfirm = useCallback((message, onConfirm) => { setModalConfig({ type: 'confirm', message, onConfirm }); }, []);
+
+  // --- Effects ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (!isCustomDB && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          try {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } catch (tokenErr) {
+            await signInAnonymously(auth);
+          }
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) {
+        setDbStatus("驗證失敗");
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+        setUser(u);
+        setIsAuthReady(true);
+        if (u) setDbStatus(isCustomDB ? "Private DB" : "Test DB");
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (isClientPortal) {
+        setClientMode(urlMode === 'warranty' ? 'warranty' : 'standard');
+        setView('client-view-loading');
+    } 
+    else {
+        const storedAdmin = typeof window !== 'undefined' ? localStorage.getItem('depower_admin') : null;
+        if (storedAdmin === 'true' && user) {
+            setIsAdmin(true);
+            if (view === 'initializing' || view === 'login') {
+                setView('list');
+            }
+        } else {
+            setView('login');
+        }
+    }
+  }, [isAuthReady, isClientPortal, urlMode, user, view]); 
+
+  useEffect(() => {
+    if (!user || !db) return;
+    
+    const errHandler = (err) => {
+        console.error("Firestore Listener Error:", err);
+        if (err.code === 'permission-denied') setShowPermissionError(true);
+    };
+
+    const unsubOrders = onSnapshot(getCollection(db, 'dispatch_orders', useLegacyPath), (snap) => {
+        const data = []; const seenIds = new Set();
+        const sortedDocs = snap.docs.sort((a,b) => (b.data().createdAt?.seconds||0) - (a.data().createdAt?.seconds||0));
+        sortedDocs.forEach(d => { const raw = d.data(); const normalized = normalizeOrderData(d.id, raw); const uniqueKey = (normalized.orderNumber && normalized.orderNumber !== 'N/A') ? normalized.orderNumber : d.id; if (!seenIds.has(uniqueKey)) { seenIds.add(uniqueKey); data.push(normalized); } });
+        data.sort((a,b) => { const dateA = (a.date || '') + (a.time || ''); const dateB = (b.date || '') + (b.time || ''); if (!dateA && !dateB) return 0; if (!dateA) return 1; if (!dateB) return -1; return dateB.localeCompare(dateA); });
+        setOrders(data);
+        if (isClientPortal && urlOrderId) { const found = data.find(o => o.id === urlOrderId.trim()); if (found) { setSelectedOrder(found); setView('client-view'); } else if (data.length > 0 || snap.metadata.fromCache === false) { setView('client-view-not-found'); } }
+    }, errHandler);
+
+    const unsubTechs = onSnapshot(getCollection(db, 'technicians', useLegacyPath), (s) => setTechnicians(s.docs.map(d => ({id:d.id, ...d.data()}))), errHandler);
+    const unsubSales = onSnapshot(getCollection(db, 'sales_team', useLegacyPath), (s) => setSalesTeam(s.docs.map(d => ({id:d.id, ...d.data()}))), errHandler);
+    const unsubKols = onSnapshot(getCollection(db, 'kols', useLegacyPath), (s) => setKols(s.docs.map(d => ({id:d.id, ...d.data()}))), errHandler);
+    const unsubCerts = onSnapshot(getCollection(db, 'certification_types', useLegacyPath), (s) => setCertTypes(s.docs.map(d => ({id:d.id, ...d.data()}))), errHandler);
+    const unsubConduits = onSnapshot(getCollection(db, 'conduit_options', useLegacyPath), (s) => setDbConduits(s.docs.map(d => ({id:d.id, ...d.data()}))), errHandler);
+    
+    const unsubBranding = onSnapshot(getDocRef(db, 'company_settings', 'branding', useLegacyPath), (d) => {
+        if(d.exists()) setCompanyBranding(d.data());
+    }, errHandler);
+
+    return () => { unsubOrders(); unsubTechs(); unsubSales(); unsubKols(); unsubCerts(); unsubConduits(); unsubBranding(); };
+  }, [user, useLegacyPath, isClientPortal, urlOrderId]);
+
+  useEffect(() => { 
+      if (!user || !db) return; 
+      const unsubStats = onSnapshot(getDocRef(db, 'company_settings', 'stats', useLegacyPath), (d) => { 
+          if(d.exists()) { 
+              const data = d.data(); 
+              setCompanyStats(data); 
+              setLocalPwCount(data.totalInstalledPw || 0); 
+          } 
+      }); 
+      return () => unsubStats(); 
+  }, [user, useLegacyPath]);
+
+  const filteredOrders = useMemo(() => {
+      let res = [...orders]; 
+      if (filterStatus === 'survey_pending') res = res.filter(o => (o.status?.includes('待場勘') || o.status?.includes('已派場勘') || o.status?.includes('預約')) && !o.status?.includes('完成'));
+      else if (filterStatus === 'quote_done') res = res.filter(o => o.status?.includes('報價') || o.status?.includes('場勘完成'));
+      else if (filterStatus === 'install_pending') res = res.filter(o => (o.status?.includes('已簽約') || o.status?.includes('派安裝') || o.status?.includes('施工')) && !o.status?.includes('安裝完成'));
+      else if (filterStatus === 'install_done') res = res.filter(o => o.status?.includes('安裝完成') || o.status?.includes('結案') || o.status?.includes('驗收'));
+      if (searchQuery) { const q = searchQuery.toLowerCase(); res = res.filter(o => (String(o.orderNumber || '')).includes(q) || (String(o.clientName || '')).toLowerCase().includes(q) || (String(o.phone || '')).includes(q)); }
+      res.sort((a, b) => { if (sortType === 'created_desc') return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0); const dateA = (a.date || '') + (a.time || ''); const dateB = (b.date || '') + (b.time || ''); if (!dateA && !dateB) return 0; if (!dateA) return 1; if (!dateB) return -1; if (sortType === 'date_desc') return dateB.localeCompare(dateA); if (sortType === 'date_asc') return dateA.localeCompare(dateB); return 0; });
+      return res;
+  }, [orders, filterStatus, searchQuery, sortType]);
+
+  const dashboardCounts = useMemo(() => {
+    try {
+        return {
+            surveyPending: orders.filter(o => (o.status?.includes('待場勘') || o.status?.includes('已派場勘')) && !o.status?.includes('完成')).length || 0,
+            quoteDone: orders.filter(o => o.status?.includes('報價') || o.status?.includes('場勘完成')).length || 0,
+            installPending: orders.filter(o => (o.status?.includes('已簽約') || o.status?.includes('派安裝') || o.status?.includes('施工')) && !o.status?.includes('安裝完成')).length || 0,
+            installDone: orders.filter(o => o.status?.includes('安裝完成') || o.status?.includes('結案') || o.status?.includes('驗收')).length || 0,
+        };
+    } catch(e) {
+        return { surveyPending: 0, quoteDone: 0, installPending: 0, installDone: 0 };
+    }
+  }, [orders]);
+
+  const stats = useMemo(() => {
+    try {
+        let monthlyTotal = 0, totalSurveyCount = 0, totalDealPW = 0, totalSalesRevenue = 0, totalPotentialRevenue = 0; 
+        const techStats = {}; technicians.forEach(t => techStats[t.name] = { surveyPW: 0, installPW: 0, dealPW: 0 });
+        const serviceCounts = {}; SERVICE_TYPES.forEach(s => serviceCounts[s] = { count: 0 });
+        const salesStats = {}; salesTeam.forEach(s => salesStats[s.name] = { count: 0, revenue: 0, potential: 0 }); salesStats["未填寫"] = { count: 0, revenue: 0, potential: 0 };
+        const kolStats = {}; 
+        kols.forEach(k => kolStats[k.name] = { count: 0, revenue: 0, pwCount: 0 }); 
+        kolStats["未填寫/無"] = { count: 0, revenue: 0, pwCount: 0 };
+        let systemTotalPW = 0;
+        
+        const citySurveyCounts = {};
+        const cityInstallCounts = {};
+        
+        orders.forEach(order => {
+          let orderDate = order.date || '';
+          try { const d = new Date(orderDate); if (!isNaN(d.getTime())) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); orderDate = `${y}-${m}`; } } catch (e) {}
+          let amount = parseFloat((order.projectAmount||'0').toString().replace(/[^\d.]/g, '')) || 0;
+          const pwCount = parseInt(order.powerwallCount) || 0;
+          const isDealStatus = ["已簽約", "已派安裝", "安裝完成", "已結案", "成交", "施工"].some(s => (order.status||'').includes(s));
+          const isDealCheckbox = order.isDeal === true || order.isDeal === "true";
+          const isCompletedInstall = ["安裝完成", "已結案", "驗收"].some(s => (order.status||'').includes(s));
+          
+          if (isDealStatus || isDealCheckbox) { systemTotalPW += pwCount; }
+          
+          const status = order.status || "";
+          const city = order.city || "未分區";
+
+          if (status.includes("待場勘") || status.includes("已派場勘") || status.includes("預約")) {
+              if (!citySurveyCounts[city]) citySurveyCounts[city] = 0;
+              citySurveyCounts[city]++;
+          }
+
+          if (status.includes("已簽約") || status.includes("待派安裝") || status.includes("已派安裝") || status.includes("施工")) {
+              if (!cityInstallCounts[city]) cityInstallCounts[city] = 0;
+              cityInstallCounts[city]++;
+          }
+
+          if (orderDate && orderDate.startsWith(statMonth)) {
+            monthlyTotal++;
+            const service = order.serviceType || '';
+            if (!serviceCounts[service]) serviceCounts[service] = { count: 0 }; serviceCounts[service].count += 1;
+            const rawSalesName = (order.salesName || "未填寫").trim(); 
+            if (!salesStats[rawSalesName]) salesStats[rawSalesName] = { count: 0, revenue: 0, potential: 0 };
+            const rawKolName = (order.kolName || "未填寫/無").trim();
+            if (!kolStats[rawKolName]) kolStats[rawKolName] = { count: 0, revenue: 0, pwCount: 0 };
+            if (isDealStatus || isDealCheckbox) {
+                salesStats[rawSalesName].count += 1; salesStats[rawSalesName].revenue += amount;
+                kolStats[rawKolName].count += 1; kolStats[rawKolName].revenue += amount; kolStats[rawKolName].pwCount += pwCount;
+                totalSalesRevenue += amount;
+            } else {
+                if (amount > 0) { salesStats[rawSalesName].potential += amount; totalPotentialRevenue += amount; }
+            }
+            if (isCompletedInstall) { totalDealPW += pwCount; }
+            const isSurvey = service.includes("場勘"); 
+            if (isSurvey) totalSurveyCount++;
+            const isInstall = service.includes("安裝");
+            const orderTechs = (order.technicians && order.technicians.length > 0) ? order.technicians : (order.technicianName ? [{name: order.technicianName}] : []);
+            orderTechs.forEach(tech => {
+                const tName = tech.name ? tech.name.trim() : "Unknown";
+                if (techStats[tName]) {
+                    if (isSurvey) techStats[tName].surveyPW += pwCount;
+                    if (isInstall) techStats[tName].installPW += pwCount;
+                    if (isDealStatus || isDealCheckbox) techStats[tName].dealPW += pwCount;
+                }
+            });
+          }
+        });
+        
+        const regions = {
+            "北區": ["基隆市", "台北市", "新北市", "桃園市", "新竹市", "新竹縣", "宜蘭縣"],
+            "中區": ["苗栗縣", "台中市", "彰化縣", "南投縣", "雲林縣"],
+            "南區": ["嘉義市", "嘉義縣", "台南市", "高雄市", "屏東縣"],
+            "東區": ["花蓮縣", "台東縣"],
+            "離島": ["澎湖縣", "金門縣", "連江縣"]
+        };
+        const generateRegionalStats = (counts) => {
+            return Object.entries(regions).map(([region, cities]) => {
+                const cityData = cities.map(c => ({ name: c, count: counts[c] || 0 })).filter(c => c.count > 0).sort((a,b) => b.count - a.count);
+                const total = cityData.reduce((sum, c) => sum + c.count, 0);
+                return { region, cityData, total };
+            }).filter(r => r.total > 0);
+        };
+
+        const surveyRegionalStats = generateRegionalStats(citySurveyCounts);
+        const installRegionalStats = generateRegionalStats(cityInstallCounts);
+
+        const sortedServices = Object.entries(serviceCounts).sort(([, a], [, b]) => b.count - a.count).map(([name, data]) => ({ name, count: data.count }));
+        const sortedTechStats = Object.entries(techStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.surveyPW - a.surveyPW);
+        const sortedSales = Object.entries(salesStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => (b.revenue + b.potential) - (a.revenue + a.potential)).filter(s => s.count > 0 || s.potential > 0); 
+        const sortedKols = Object.entries(kolStats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.revenue - a.revenue).filter(k => k.count > 0 || k.revenue > 0);
+        const maxSalesRevenue = Math.max(...sortedSales.map(s => s.revenue), 1);
+        
+        return { monthlyTotal, totalSurveyCount, totalDealPW, totalSalesRevenue, totalPotentialRevenue, sortedTechStats, sortedServices, sortedSales, sortedKols, maxSalesRevenue, systemTotalPW, surveyRegionalStats, installRegionalStats };
+    } catch(e) {
+        return { monthlyTotal: 0, totalSurveyCount: 0, totalDealPW: 0, totalSalesRevenue: 0, totalPotentialRevenue: 0, sortedTechStats: [], sortedServices: [], sortedSales: [], sortedKols: [], maxSalesRevenue: 1, systemTotalPW: 0, surveyRegionalStats: [], installRegionalStats: [] };
+    }
+  }, [orders, statMonth, technicians, salesTeam, kols]);
+
+  const resetForm = useCallback(() => {
+      setFormData({
+        clientName: '', phone: '', address: '', city: '', 
+        serviceType: SERVICE_TYPES[0], date: '', time: '', technicians: [], status: STATUS_OPTIONS[0], notes: '',
+        powerwallCount: 0, gatewayCount: 0, isDeal: false,
+        salesName: "", kolName: "", 
+        powerSpec: POWER_SPEC_OPTIONS[0], needsDrilling: false,
+        touSetting: TOU_OPTIONS[0],
+        conduits: [], projectAmount: '', paidAmount: '', paymentMethod: PAYMENT_OPTIONS[0],
+        installType: 'standard', wireGauge: WIRE_GAUGE_OPTIONS[0],
+        gwLength: '', pwLength: '', breakers: [], warrantyStartDate: '',
+        planningImages: [], 
+        completionImages: [], 
+        clientSignature: ''
+    });
+      setSelectedOrder(null);
+      setIsEditing(false);
+      setUploadedPlanningImages([]); 
+      setUploadedCompletionImages([]); 
+      setClientSignature(null);
+  }, []);
+
+  const handleLogin = (e) => { e.preventDefault(); if (passcode === ADMIN_PASSCODE) { localStorage.setItem('depower_admin', 'true'); setIsAdmin(true); setView('list'); } else { showAlert("通行碼錯誤"); } };
+  
+  const handleLogout = () => { 
+      localStorage.removeItem('depower_admin'); 
+      setIsAdmin(false); 
+      setView('login'); 
+      setPasscode(''); 
+  };
+  
+  const saveCompanyStats = async () => { try { await setDoc(getDocRef(db, 'company_settings', 'stats', useLegacyPath), { totalInstalledPw: parseInt(localPwCount) || 0 }, { merge: true }); showToast('更新成功'); } catch (e) { showAlert("更新失敗"); } };
+  
+  const handleSaveLogo = async (logoData) => {
+      try {
+          await setDoc(getDocRef(db, 'company_settings', 'branding', useLegacyPath), { logo: logoData }, { merge: true });
+          showToast('Logo 更新成功');
+      } catch (e) {
+          showAlert("Logo 更新失敗");
+      }
+  };
+  
+  const handleSaveCustomConfig = () => { try { let input = customConfigInput.trim(); const firstBrace = input.indexOf('{'); const lastBrace = input.lastIndexOf('}'); if (firstBrace !== -1 && lastBrace !== -1) { input = input.substring(firstBrace, lastBrace + 1); } input = input.replace(/\/\/.*$/gm, ''); let config; try { config = JSON.parse(input); } catch (e) { const fn = new Function(`return ${input}`); config = fn(); } if(!config.apiKey) throw new Error("無效的 Config"); localStorage.setItem('depower_custom_config', JSON.stringify(config)); showAlert("設定已儲存，請手動重新整理網頁"); } catch(e) { showAlert(`設定錯誤: ${e.message}`); } };
+  
+  const handleClearCustomConfig = () => { 
+      showConfirm("確定要切回預設公用資料庫嗎？", () => {
+          localStorage.removeItem('depower_custom_config'); 
+          window.location.reload(); 
+      });
+  };
+  
+  const startEdit = useCallback((order) => {
+    if (!order) return;
+    try {
+        let currentTechs = Array.isArray(order.technicians) ? order.technicians : (order.technicianName ? [{name: order.technicianName}] : []);
+        let currentConduits = Array.isArray(order.conduits) ? order.conduits : (order.conduitType ? [order.conduitType] : []);
+        let autoCity = order.city || (order.address && TAIWAN_CITIES.find(c => order.address.includes(c))) || "";
+        let initialBreakers = Array.isArray(order.breakers) ? [...order.breakers] : (order.breakerType ? [{type: order.breakerType, count: order.breakerCount}] : []);
+        
+        let safeWireGauge = order.wireGauge || WIRE_GAUGE_OPTIONS[0];
+        if (!safeWireGauge.includes('XLPE') && !safeWireGauge.includes('未選定')) safeWireGauge = `${safeWireGauge}(XLPE)`;
+
+        setFormData({
+            clientName: order.clientName || '', phone: order.phone || '', address: order.address || '', city: autoCity,
+            serviceType: order.serviceType || SERVICE_TYPES[0], date: order.date || '', time: order.time || '',
+            technicians: currentTechs, status: order.status || STATUS_OPTIONS[0], notes: order.notes || '',
+            powerwallCount: order.powerwallCount || 0, gatewayCount: order.gatewayCount || 0, isDeal: !!order.isDeal,
+            salesName: order.salesName || "", kolName: order.kolName || "", 
+            powerSpec: order.powerSpec || POWER_SPEC_OPTIONS[0], 
+            needsDrilling: !!order.needsDrilling, 
+            touSetting: order.touSetting || TOU_OPTIONS[0], conduits: currentConduits,
+            projectAmount: order.projectAmount || '', paidAmount: order.paidAmount || '', 
+            paymentMethod: order.paymentMethod || PAYMENT_OPTIONS[0],
+            installType: order.installType || 'standard', wireGauge: safeWireGauge, 
+            gwLength: order.gwLength || '', pwLength: order.pwLength || '', 
+            breakers: initialBreakers, warrantyStartDate: order.warrantyStartDate || '',
+            planningImages: order.planningImages || [], 
+            completionImages: order.completionImages || [], 
+            clientSignature: order.clientSignature || ''
+        });
+        setSelectedOrder(order); 
+        setIsEditing(true); 
+        setUploadedPlanningImages(order.planningImages || []); 
+        setUploadedCompletionImages(order.completionImages || []); 
+        setClientSignature(order.clientSignature || null);
+        setView('create');
+    } catch(e) {
+        console.error("Start Edit Error:", e);
+        showAlert("編輯資料時發生錯誤，請檢查資料完整性");
+    }
+  }, [showAlert]);
+
+  const handleSaveOrder = async (e) => { 
+      e.preventDefault(); 
+      if (!user) { showAlert("請檢查網路連線"); return; } 
+      if (formData.technicians.length === 0) { showAlert("請至少選擇一位技師！"); return; } 
+      setIsProcessing(true); 
+      try { 
+          let finalCity = formData.city; 
+          if (!finalCity && formData.address) { const found = TAIWAN_CITIES.find(c => formData.address.includes(c)); if (found) finalCity = found; } 
+          
+          const dataToSave = { 
+              ...formData, 
+              city: finalCity || "", 
+              projectAmount: parseInt(String(formData.projectAmount).replace(/,/g, '') || 0), 
+              paidAmount: parseInt(String(formData.paidAmount).replace(/,/g, '') || 0), 
+              planningImages: uploadedPlanningImages,
+              completionImages: uploadedCompletionImages,
+              planningImage: uploadedPlanningImages.length > 0 ? uploadedPlanningImages[0] : '',
+              completionImage: uploadedCompletionImages.length > 0 ? uploadedCompletionImages[0] : '',
+              clientSignature: clientSignature || '' 
+          }; 
+          
+          delete dataToSave.id; delete dataToSave.technicianName; delete dataToSave.conduitType; delete dataToSave.breakerType; 
+          if (isEditing && selectedOrder) { 
+              await updateDoc(getDocRef(db, 'dispatch_orders', selectedOrder.id, useLegacyPath), { ...dataToSave, updatedAt: serverTimestamp() }); 
+              showToast('修改成功'); 
+          } 
+          else { 
+              await addDoc(getCollection(db, 'dispatch_orders', useLegacyPath), { ...dataToSave, status: formData.status, orderNumber: 'DP-' + Math.floor(100000 + Math.random() * 900000), createdAt: serverTimestamp() }); 
+              showToast('新增成功'); 
+          } 
+          resetForm(); 
+          setView('list');
+        } catch (e) { 
+            console.error(e); 
+            showAlert(`操作失敗：${e.message}`); 
+        } finally { 
+            setIsProcessing(false); 
+        } 
+    };
+
+  const handleDeleteOrder = useCallback((order) => { 
+      showConfirm(`確定刪除單號 ${order.orderNumber} (${order.clientName})？`, async () => {
+        setIsProcessing(true);
+        try { 
+            await deleteDoc(getDocRef(db, 'dispatch_orders', order.id, useLegacyPath)); 
+            if (order.orderNumber && order.orderNumber !== 'N/A') {
+                const colRef = getCollection(db, 'dispatch_orders', useLegacyPath);
+                const snapshot = await getDocs(colRef);
+                const duplicates = snapshot.docs.filter(d => { const data = d.data(); return (String(data.orderNumber) === String(order.orderNumber)) && (d.id !== order.id); });
+                if (duplicates.length > 0) {
+                    showConfirm(`⚠️ 系統檢測到後台還有 ${duplicates.length} 筆相同的重複資料。\n\n是否要一併永久刪除這些重複項目？`, async () => {
+                        await Promise.all(duplicates.map(dup => deleteDoc(dup.ref))); 
+                        showToast(`已成功清除所有 ${order.clientName} 的重複資料。`);
+                    });
+                }
+            }
+            showToast("已刪除"); 
+            if(selectedOrder?.id === order.id) setSelectedOrder(null); 
+        } catch(e) { showAlert("刪除失敗：" + e.message); } finally { setIsProcessing(false); }
+      });
+  }, [useLegacyPath, db, selectedOrder, showConfirm, showToast, showAlert]);
+
+  const handleExportData = () => { const dataStr = JSON.stringify(orders, null, 2); const blob = new Blob([dataStr], { type: "application/json" }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `depower_backup_${new Date().toISOString().split('T')[0]}.json`; link.click(); URL.revokeObjectURL(url); };
+  
+  const shareViaLine = useCallback((o) => { window.open(`https://line.me/R/msg/text/?${encodeURIComponent(generateMessageContent(o, getBaseUrl(), false))}`, '_blank'); }, []);
+  const shareViaSMS = useCallback((o) => { window.location.href = `sms:${o.phone}&body=${encodeURIComponent(generateMessageContent(o, getBaseUrl(), true))}`; }, []);
+  const copyContent = useCallback((o) => { if(copyTextToClipboard(generateMessageContent(o, getBaseUrl(), false))) showToast("內容已複製"); else showAlert("複製失敗"); }, [showAlert, showToast]);
+  const copyWarrantyLink = useCallback((o) => { if(copyTextToClipboard(generateWarrantyMessage(o, getBaseUrl()))) showToast("保固連結已複製"); else showAlert("複製失敗"); }, [showAlert, showToast]);
+  
+  const reloadData = () => { if (user && db) { setDbStatus("正在重新載入..."); getDocs(getCollection(db, 'dispatch_orders', useLegacyPath)).then(s => setDbStatus(`完成 (${s.size})`)); } };
+  const handleStartEditPerson = (person) => { setEditingPersonId(person.id); setPersonName(person.name); setPersonPhone(person.phone || ''); setPersonCerts(person.certs || []); setPersonAvatar(person.avatar || null); };
+  const handleResetPersonForm = () => { setEditingPersonId(null); setPersonName(''); setPersonPhone(''); setPersonCerts([]); setPersonAvatar(null); };
+  
+  const handleAvatarUpload = async (e) => { const file = e.target.files[0]; if (file) { try { const compressed = await compressImage(file, 400, 0.7); setPersonAvatar(compressed); } catch (err) { showAlert("圖片處理失敗"); } } };
+  const handleLogoUpload = async (e) => { const file = e.target.files[0]; if (file) { try { const compressed = await compressImage(file, 800, 0.9); handleSaveLogo(compressed); } catch (err) { showAlert("圖片處理失敗"); } } };
+
+  const handleSavePerson = async () => { 
+      if (!user) { showAlert("請先登入系統。"); return; } 
+      const cleanName = personName.trim(); 
+      if (!cleanName) { showAlert("請輸入姓名/名稱"); return; } 
+      setIsProcessing(true); 
+      try { 
+          let collectionName = 'technicians'; 
+          if (manageTab === 'sales') collectionName = 'sales_team'; 
+          if (manageTab === 'kol') collectionName = 'kols'; 
+          if (manageTab === 'conduit') collectionName = 'conduit_options'; 
+          const colRef = getCollection(db, collectionName, useLegacyPath); 
+          
+          if (!editingPersonId) { 
+              const currentList = manageTab === 'technician' ? technicians : (manageTab === 'sales' ? salesTeam : (manageTab === 'conduit' ? dbConduits : kols)); 
+              if (currentList.some(p => p.name === cleanName)) { showAlert("此名稱已存在！"); setIsProcessing(false); return; } 
+          } 
+          
+          const personData = { name: cleanName, updatedAt: serverTimestamp() }; 
+          const cleanPhone = personPhone.trim(); 
+          if (cleanPhone) personData.phone = cleanPhone; 
+          if (personAvatar) personData.avatar = personAvatar; 
+          
+          if (manageTab === 'technician') { 
+              if (!cleanPhone) { showAlert("技師請輸入電話"); setIsProcessing(false); return; } 
+              personData.certs = personCerts; 
+          } 
+          
+          if (editingPersonId) { 
+              const docRef = getDocRef(db, collectionName, editingPersonId, useLegacyPath); 
+              await updateDoc(docRef, personData); 
+              showToast(`資料已更新`); 
+          } else { 
+              personData.createdAt = serverTimestamp(); 
+              await addDoc(colRef, personData); 
+              showToast(`新增成功`); 
+          } 
+          handleResetPersonForm(); 
+      } catch (e) { showAlert("儲存失敗：" + e.message); } finally { setIsProcessing(false); } 
+  };
+  
+  const handleDeletePerson = async (id) => { 
+      if (!user) return; 
+      let collectionName = 'technicians'; 
+      if (manageTab === 'sales') collectionName = 'sales_team'; 
+      if (manageTab === 'kol') collectionName = 'kols'; 
+      if (manageTab === 'conduit') collectionName = 'conduit_options'; 
+      const docRef = getDocRef(db, collectionName, id, useLegacyPath); 
+      
+      showConfirm(`確定要刪除嗎？`, async () => {
+          try { await deleteDoc(docRef); } catch (e) { showAlert("刪除失敗：" + e.message); } 
+      });
+  };
+  
+  const handleAddCertType = async () => { const cleanCert = newCertType.trim(); if (!cleanCert) return; if (certTypes.some(c => c.name === cleanCert)) { showAlert("此證照名稱已存在"); return; } try { const colRef = getCollection(db, 'certification_types', useLegacyPath); await addDoc(colRef, { name: cleanCert }); setNewCertType(''); } catch (e) { showAlert(e.message) } };
+  const handleDeleteCertType = async (id) => { 
+      const docRef = getDocRef(db, 'certification_types', id, useLegacyPath); 
+      showConfirm("確定刪除此證照類型？", async () => {
+          try { await deleteDoc(docRef); } catch(e) { showAlert(e.message) } 
+      });
+  };
+  
+  const togglePersonCert = (cert) => { if (personCerts.includes(cert)) { setPersonCerts(personCerts.filter(c => c !== cert)); } else { setPersonCerts([...personCerts, cert]); } };
+  
+  const handleImportDefault = async () => { 
+      let collectionName = 'technicians'; let defaults = DEFAULT_TECHNICIANS; 
+      if (manageTab === 'sales') { collectionName = 'sales_team'; defaults = DEFAULT_SALES_TEAM; } 
+      if (manageTab === 'kol') { collectionName = 'kols'; defaults = DEFAULT_KOLS; } 
+      if (manageTab === 'conduit') { collectionName = 'conduit_options'; defaults = DEFAULT_CONDUIT_OPTIONS.map(name => ({name})); } 
+      const colRef = getCollection(db, collectionName, useLegacyPath); 
+      
+      showConfirm(`確定要匯入預設名單嗎？`, async () => {
+          setIsProcessing(true); 
+          try { 
+              const promises = defaults.map(item => addDoc(colRef, { ...item, createdAt: serverTimestamp() })); 
+              await Promise.all(promises); 
+              showToast(`已成功匯入預設名單！`); 
+          } catch (e) { showAlert("匯入失敗：" + e.message); } finally { setIsProcessing(false); } 
+      });
+  };
+  
+  const handleImportDefaultCerts = async () => { setIsProcessing(true); try { const colRef = getCollection(db, 'certification_types', useLegacyPath); const promises = DEFAULT_CERT_TYPES.map(name => addDoc(colRef, { name })); await Promise.all(promises); showToast("預設證照庫匯入成功"); } catch (e) { showAlert(e.message) } finally { setIsProcessing(false); } };
+  
+  const toggleTechnician = (tech) => { const exists = formData.technicians.find(t => t.name === tech.name); if (exists) { setFormData({ ...formData, technicians: formData.technicians.filter(t => t.name !== tech.name) }); } else { setFormData({ ...formData, technicians: [...formData.technicians, tech] }); } };
+  const toggleConduit = (option) => { const current = formData.conduits || []; if (current.includes(option)) { setFormData({ ...formData, conduits: current.filter(c => c !== option) }); } else { setFormData({ ...formData, conduits: [...current, option] }); } };
+
+  const handleMultipleImageUpload = async (e, setImagesFunc, currentImages) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+      if (currentImages.length + files.length > 6) { showAlert("圖片數量過多，建議單一類別不超過 6 張"); return; }
+      setIsProcessing(true);
+      try {
+          const compressedPromises = files.map(file => compressImage(file, 800, 0.7)); 
+          const newImages = await Promise.all(compressedPromises);
+          setImagesFunc(prev => [...prev, ...newImages]);
+          showToast(`已新增 ${newImages.length} 張圖片`);
+      } catch (err) { console.error(err); showAlert("圖片處理失敗"); } finally { setIsProcessing(false); }
+  };
+
+  const removeImage = (index, setImagesFunc) => { 
+      showConfirm("確定移除這張圖片嗎？", () => {
+          setImagesFunc(prev => prev.filter((_, i) => i !== index)); 
+      });
+  };
+
+  const handleClientSign = async (signatureData) => {
+      if (!selectedOrder) return;
+      try {
+          await updateDoc(getDocRef(db, 'dispatch_orders', selectedOrder.id, useLegacyPath), { clientSignature: signatureData, signedAt: serverTimestamp() });
+          showToast("簽名已保存");
+          setSelectedOrder(prev => ({ ...prev, clientSignature: signatureData }));
+      } catch (e) { showAlert("簽名保存失敗: " + e.message); }
+  };
+
+  const handleDeleteSignature = async () => {
+    if (!selectedOrder) return;
+    showConfirm("確定要刪除客戶簽名？客戶將需要重新簽署。", async () => {
+         try {
+             await updateDoc(getDocRef(db, 'dispatch_orders', selectedOrder.id, useLegacyPath), { clientSignature: "", signedAt: null });
+             setClientSignature("");
+             setFormData(prev => ({ ...prev, clientSignature: "" }));
+             setSelectedOrder(prev => ({ ...prev, clientSignature: "" }));
+             showToast("簽名已刪除");
+         } catch (e) { showAlert("刪除失敗: " + e.message); }
+    });
+  };
+
+  const handleReferral = () => {
+      const text = `親愛的朋友，我在 DEPower 崧象智能安裝了 Tesla Powerwall，實現了真正的能源自主！🔋\n\n這家安裝施工團隊超級專業，並且崧象智能為台灣目前安裝量能最多數量的特斯拉認證安裝廠商還有 10 年原廠保固。現在家裡不怕停電，還能省台電電費。\n\n真心推薦給你，如果您有興趣請點擊LINE@聯繫他們安裝：\nhttps://lin.ee/Wh1cmnv\n\n#DEPower #TeslaPowerwall #能源自主`;
+      if (navigator.share) { navigator.share({ title: '真心推薦 DEPower', text: text, url: 'https://lin.ee/Wh1cmnv' }).catch(console.error); } 
+      else { 
+          if(copyTextToClipboard(text)) showToast("推薦文案已複製！趕快分享給好友吧！"); 
+          else showAlert("複製失敗");
+      }
+  };
+
+  // --- Views ---
+  if (isClientPortal || view === 'client-view' || view === 'client-view-loading' || view === 'client-view-not-found') {
+      if (view === 'client-view-not-found' && !selectedOrder) { return <div className="flex flex-col items-center justify-center h-screen bg-gray-50 text-gray-500"><div className="bg-white p-6 rounded-2xl shadow-sm border text-center"><p className="mb-2 font-bold text-lg text-gray-700">查無此工單</p><p className="text-xs text-gray-400">請確認連結是否正確，或聯繫管理員。</p></div></div>; }
+      if ((view === 'initializing' || view === 'client-view-loading') && !selectedOrder) return <Loading text="系統連線中，請稍候..." />;
+      if (!selectedOrder) return <Loading text="讀取資料中..." />;
+      
+      const isWarranty = clientMode === 'warranty';
+      const isSignaturePhase = ["報價完成", "已簽約", "待派安裝", "已派安裝", "施工", "安裝完成", "驗收"].some(s => (selectedOrder.status || "").includes(s));
+      const isReadyForSignature = isSignaturePhase; 
+      
+      const isQuotePhase = (selectedOrder.status || "").includes("報價");
+      const signatureTitle = isQuotePhase ? "客戶電子簽名 (報價單確認)" : "客戶電子簽名 (驗收確認)";
+
+      const isCompleted = ["安裝完成", "已結案", "驗收"].some(s => (selectedOrder.status || "").includes(s));
+
+      const getGreeting = () => { const h = new Date().getHours(); if (h < 12) return "早安"; if (h < 18) return "午安"; return "晚安"; };
+      
+      const assignedSales = salesTeam.find(s => s.name === selectedOrder.salesName);
+      
+      return (
+        <div className="min-h-screen bg-[#0F172A] font-sans text-gray-100">
+           {showSuccess && <Toast message={toastMsg} onClose={()=>setShowSuccess(false)} />}
+           <DialogModal config={modalConfig} onClose={()=>setModalConfig(null)} />
+           
+           {/* 全螢幕圖片檢視器 (Lightbox) */}
+           {viewingImage && (
+               <div 
+                   className="fixed inset-0 z-[100000] bg-black/95 flex items-center justify-center backdrop-blur-md animate-fade-in touch-none"
+                   onClick={() => setViewingImage(null)}
+               >
+                   <button 
+                       className="absolute top-6 right-6 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full backdrop-blur-lg transition-all z-50"
+                       onClick={(e) => { e.stopPropagation(); setViewingImage(null); }}
+                   >
+                       <X size={24} />
+                   </button>
+                   <div className="w-full h-full p-4 flex items-center justify-center overflow-auto">
+                       <img 
+                           src={viewingImage} 
+                           alt="Fullscreen View" 
+                           className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" 
+                           onClick={(e) => e.stopPropagation()} 
+                       />
+                   </div>
+               </div>
+           )}
+
+           <div className="bg-[#1E293B]/80 backdrop-blur-md p-5 sticky top-0 z-50 border-b border-gray-700/50 shadow-2xl">
+              <div className="max-w-md mx-auto flex justify-between items-center">
+                  {!isClientPortal ? ( 
+                      <button onClick={()=>{setView('list'); setViewingImage(null);}} className="text-sm flex items-center text-gray-400 hover:text-white transition group"> 
+                          <ChevronLeft size={20} className="group-hover:-translate-x-1 transition"/> 返回 
+                      </button> 
+                  ) : ( 
+                      <div className="flex items-center gap-3"> 
+                          {companyBranding.logo ? (
+                              <img src={companyBranding.logo} alt="Logo" className="h-14 md:h-16 object-contain" />
+                          ) : (
+                              <>
+                                <div className="p-1.5 bg-blue-600/20 rounded-lg border border-blue-500/30"> <Zap size={20} className="text-blue-400 fill-current"/> </div> 
+                                <div className="flex flex-col"> <span className="font-bold text-white text-base tracking-wide leading-none">{COMPANY_FULL_NAME}</span> <span className="text-[10px] text-blue-400 font-bold tracking-[0.2em] mt-1 opacity-80">智能儲能專家</span> </div> 
+                              </>
+                          )}
+                      </div> 
+                  )}
+                  <div className="flex items-center gap-2"> 
+                      <span className="hidden md:flex items-center gap-1 px-2 py-1 bg-white/10 rounded-lg border border-white/10"> 
+                          <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="G" className="w-3 h-3"/> 
+                          <div className="flex text-[10px] text-yellow-400"> 
+                              <Star size={10} fill="currentColor" /> <Star size={10} fill="currentColor" /> <Star size={10} fill="currentColor" /> <Star size={10} fill="currentColor" /> <Star size={10} fill="currentColor" /> 
+                          </div> 
+                          <span className="text-[10px] font-bold text-white ml-1">5.0</span> 
+                      </span> 
+                      <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-900/50 text-blue-300 border border-blue-700/50"> 
+                          {isWarranty ? "數位保固證書" : "案場即時進度"} 
+                      </span> 
+                  </div>
+              </div>
+           </div>
+
+           <div className="max-w-md mx-auto p-5 pb-32 space-y-6 animate-fade-in-up duration-700">
+                <ErrorBoundary>
+                  {!isWarranty ? (
+                      <div className="space-y-6">
+                          <div className="flex items-center justify-between">
+                              <h2 className="text-2xl font-bold text-white animate-fade-in-up delay-100">{getGreeting()}，{selectedOrder.clientName}</h2>
+                          </div>
+                          
+                          <div className="animate-fade-in-up delay-200">
+                             <OrderTimeline currentStatus={selectedOrder.status} />
+                          </div>
+                          
+                          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#1E293B] to-[#0F172A] border border-gray-700 shadow-2xl p-6 text-center group animate-fade-in-up delay-300">
+                              <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-blue-500/20 blur-[50px] rounded-full group-hover:bg-blue-500/30 transition duration-1000"></div>
+                              <div className="relative z-10 flex flex-col items-center">
+                                  <div className="mb-3 relative"> <div className="absolute inset-0 bg-blue-500/30 blur-xl rounded-full animate-pulse"></div> <div className="relative bg-[#0F172A] p-4 rounded-full border border-blue-500/30 shadow-inner"> <Activity size={32} className="text-blue-400"/> </div> </div>
+                                  <h2 className="text-3xl font-bold text-white mb-1 tracking-tight">{String(selectedOrder.status || '').split(' ')[0]}</h2>
+                                  <p className="text-sm text-blue-300/80 font-medium mb-6">{String(selectedOrder.status || '').split(' ')[1] || '進度更新中'}</p>
+                                  <div className="w-full bg-[#334155]/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700 flex justify-between items-center mb-4"> <div className="text-left"> <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-0.5">預計時間</p> <p className="font-mono font-bold text-white">{selectedOrder.date} <span className="text-gray-500">|</span> {selectedOrder.time}</p> </div> <div className="text-right"> <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-0.5">案件編號</p> <p className="font-mono font-bold text-blue-400">{selectedOrder.orderNumber}</p> </div> </div>
+                                  <div className="w-full pt-4 border-t border-gray-700/50 flex flex-col gap-3 text-left"> <div className="flex items-center gap-3"> <div className="p-2 bg-blue-500/20 rounded-full text-blue-400"> <User size={16} /> </div> <div> <p className="text-[10px] text-gray-400 uppercase tracking-wider">尊貴客戶</p> <p className="text-sm font-bold text-white">{selectedOrder.clientName}</p> </div> </div> <div className="flex items-start gap-3"> <div className="p-2 bg-red-500/20 rounded-full text-red-400 mt-0.5"> <MapPin size={16} /> </div> <div className="flex-1"> <p className="text-[10px] text-gray-400 uppercase tracking-wider">服務地址</p> <p className="text-sm font-medium text-white leading-relaxed mb-2">{selectedOrder.address}</p> <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedOrder.address)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 rounded-lg text-xs text-blue-300 transition w-full justify-center"> <MapPin size={12} /> 開啟導航 </a> </div> </div> <div className="flex items-center gap-3"> <div className="p-2 bg-green-500/20 rounded-full text-green-400"> <Phone size={16} /> </div> <div> <p className="text-[10px] text-gray-400 uppercase tracking-wider">聯絡電話</p> <a href={`tel:${selectedOrder.phone}`} className="text-sm font-bold text-white hover:text-green-400 transition">{selectedOrder.phone}</a> </div> </div> </div>
+                              </div>
+                          </div>
+
+                          {(selectedOrder.powerwallCount > 0 || selectedOrder.gatewayCount > 0) && (
+                              <div className="bg-white/5 border border-gray-700 rounded-2xl p-5 text-center animate-fade-in-up delay-400">
+                                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
+                                      {isCompleted ? '已安裝設備' : '預定配置設備'}
+                                  </h4>
+                                  <div className="flex justify-center gap-2 flex-wrap items-end mb-3"> 
+                                      {Array.from({ length: selectedOrder.powerwallCount || 0 }).map((_, i) => ( <TeslaPowerwallGraphic key={`pw-std-${i}`} scale={0.5} /> ))} 
+                                      {Array.from({ length: selectedOrder.gatewayCount || 0 }).map((_, i) => ( <TeslaGatewayGraphic key={`gw-std-${i}`} scale={0.7} /> ))} 
+                                  </div>
+                                  <div className="inline-flex items-center gap-3 text-xs font-bold text-gray-300 bg-gray-800/50 py-1.5 px-3 rounded-full border border-gray-700"> 
+                                      {selectedOrder.powerwallCount > 0 && ( <span>Powerwall x {selectedOrder.powerwallCount}</span> )} 
+                                      {selectedOrder.powerwallCount > 0 && selectedOrder.gatewayCount > 0 && ( <span className="text-gray-600">|</span> )} 
+                                      {selectedOrder.gatewayCount > 0 && ( <span>Gateway x {selectedOrder.gatewayCount}</span> )} 
+                                  </div>
+                              </div>
+                          )}
+                          
+                          <ImageGalleryBlock title="系統規劃圖集" Icon={ImageIcon} images={selectedOrder.planningImages} onImageClick={setViewingImage} delayClass="delay-400" />
+
+                          <div className="animate-fade-in-up delay-500">
+                             <FAQSection status={selectedOrder.status} />
+                          </div>
+
+                          {isReadyForSignature && (
+                              <div className="animate-fade-in-up delay-700">
+                                {!isQuotePhase && (
+                                    <ImageGalleryBlock title="完工確認照" Icon={Camera} images={selectedOrder.completionImages} onImageClick={setViewingImage} delayClass="mb-4" />
+                                )}
+
+                                {!selectedOrder.clientSignature ? (
+                                    <div className="mt-4">
+                                        <SignaturePad onSave={handleClientSign} title={signatureTitle} />
+                                    </div>
+                                ) : (
+                                    <div className="bg-green-900/20 border border-green-500/30 rounded-2xl p-4 mt-4 text-center animate-bounce-in">
+                                        <div className="flex justify-center mb-2">
+                                            <CheckCircle size={32} className="text-green-500" />
+                                        </div>
+                                        <h4 className="text-green-400 font-bold mb-2">
+                                            {isQuotePhase ? "報價單已簽署確認" : "合約已簽署完成"}
+                                        </h4>
+                                        <div className="bg-white/90 p-2 rounded-lg inline-block shadow-lg">
+                                           <img src={selectedOrder.clientSignature} alt="Signature" className="max-h-16 mx-auto" />
+                                        </div>
+                                        <p className="text-xs text-green-600/70 mt-2">簽署時間: {selectedOrder.signedAt ? new Date(selectedOrder.signedAt.seconds * 1000).toLocaleString() : new Date().toLocaleDateString()}</p>
+                                    </div>
+                                )}
+                              </div>
+                          )}
+
+                          {selectedOrder.status?.includes('場勘') && (
+                              <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-blue-500/30 rounded-3xl p-6 relative overflow-hidden group animate-fade-in-up delay-500 mt-6">
+                                  <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition duration-700"></div>
+                                  <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4 relative z-10"> <Star className="text-yellow-400 fill-yellow-400 animate-pulse" size={20}/> 為什麼選擇 DEPower？ </h3>
+                                  <div className="grid grid-cols-2 gap-3 relative z-10 mb-4"> <div className="bg-[#0F172A]/80 p-4 rounded-2xl border border-slate-700 hover:border-blue-500/50 transition"> <div className="bg-blue-500/20 p-2 rounded-lg w-fit mb-2"> <Award size={20} className="text-blue-400"/> </div> <h4 className="text-white text-sm font-bold">原廠認證</h4> <p className="text-[10px] text-gray-400 mt-1">Tesla 官方授權安裝商</p> </div> <div className="bg-[#0F172A]/80 p-4 rounded-2xl border border-slate-700 hover:border-green-500/50 transition"> <div className="bg-green-500/20 p-2 rounded-lg w-fit mb-2"> <UserCog size={20} className="text-green-400"/> </div> <h4 className="text-white text-sm font-bold">自有工班</h4> <p className="text-[10px] text-gray-400 mt-1">不外包，品質嚴格控管</p> </div> </div>
+                                  <div className="bg-blue-900/20 rounded-xl p-4 border border-blue-500/20 relative z-10"> <h4 className="text-blue-300 text-xs font-bold flex items-center gap-2 mb-2 uppercase tracking-wider"> <Clipboard size={14}/> 場勘前準備小貼士 </h4> <ul className="text-xs text-gray-300 space-y-2"> <li className="flex items-start gap-2"> <span className="text-blue-500 mt-0.5">•</span> 請協助確認電箱周圍無大型雜物遮擋 </li> <li className="flex items-start gap-2"> <span className="text-blue-500 mt-0.5">•</span> 建議準備近一期電費單，利於評估規劃 </li> </ul> </div>
+                              </div>
+                          )}
+
+                          {selectedOrder.salesName && (
+                              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 shadow-sm mt-6 flex items-center gap-4 animate-fade-in-up delay-600">
+                                  <div className={`w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm border border-blue-100 shrink-0 overflow-hidden`}> 
+                                     {assignedSales && assignedSales.avatar ? (
+                                        <img src={assignedSales.avatar} alt={assignedSales.name} className="w-full h-full object-cover" />
+                                     ) : (
+                                        <Briefcase size={20} /> 
+                                     )}
+                                  </div>
+                                  <div className="flex-1"> <p className="text-xs text-blue-500 font-bold mb-0.5">專屬業務顧問</p> <h3 className="text-base font-bold text-gray-800">{selectedOrder.salesName}</h3> {salesTeam.find(s => s.name === selectedOrder.salesName)?.phone && ( <a href={`tel:${salesTeam.find(s => s.name === selectedOrder.salesName)?.phone}`} className="text-xs text-gray-500 flex items-center gap-1 mt-1 hover:text-white transition"> <Phone size={12} /> {salesTeam.find(s => s.name === selectedOrder.salesName)?.phone} </a> )} </div>
+                                  {salesTeam.find(s => s.name === selectedOrder.salesName)?.phone && ( <a href={`tel:${salesTeam.find(s => s.name === selectedOrder.salesName)?.phone}`} className="bg-blue-600 text-white p-3 rounded-xl shadow-lg shadow-blue-200 active:scale-95 transition hover:bg-blue-700"> <Phone size={20} /> </a> )}
+                              </div>
+                          )}
+
+                          <SystemCoreConfigBlock />
+                          <InstallationDetailsBlock selectedOrder={selectedOrder} />
+
+                          <div className="animate-fade-in-up delay-700 mt-4">
+                              <TechnicianCard orderTechs={selectedOrder.technicians} allTechs={technicians} isDarkMode={false} />
+                          </div>
+
+                          {selectedOrder.powerwallCount > 0 && (
+                              <div className="animate-fade-in-up delay-400 mt-6">
+                                <SystemSpecsCard pwCount={selectedOrder.powerwallCount} gwCount={selectedOrder.gatewayCount} />
+                                <EcoImpactCard pwCount={selectedOrder.powerwallCount} />
+                              </div>
+                          )}
+
+                          <div className="bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-400 p-6 pb-12 rounded-3xl text-white shadow-xl shadow-blue-900/20 relative overflow-hidden animate-fade-in-up delay-200 mt-6">
+                            <div className="absolute top-0 right-0 -mr-10 -mt-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
+                            <div className="relative z-10"> <div className="flex items-center gap-2 opacity-90 mb-3"> <div className="p-1 bg-white/20 rounded-lg backdrop-blur-md"> <Trophy size={14} className="text-yellow-300"/> </div> <span className="text-xs font-bold tracking-wider uppercase">DEPower 安裝實績</span> </div> <div className="flex items-baseline gap-2"> <span className="text-6xl font-black text-white tracking-tighter drop-shadow-lg"> <CountUp end={companyStats.totalInstalledPw||0} duration={5000} /> </span> <span className="text-lg font-medium opacity-90">顆 Powerwall</span> </div> </div> <div className="absolute bottom-0 left-0 w-full bg-black/10 backdrop-blur-md py-3 px-4 border-t border-white/10"> <p className="text-[10px] font-bold text-white/90 flex items-center justify-center gap-1.5 uppercase tracking-widest"> <Heart size={10} className="text-pink-300 fill-current"/> Premium Service Guarantee </p> </div>
+                          </div>
+
+                          {(parseInt(selectedOrder.projectAmount) > 0) && (
+                              <div className="bg-white rounded-3xl p-6 shadow-lg border border-gray-100 space-y-4 text-gray-800 animate-fade-in-up delay-800 mt-6">
+                                  <h3 className="text-sm font-bold text-gray-500 flex items-center gap-2 border-b border-gray-100 pb-2"> <DollarSign size={18} className="text-green-600"/> 報價與付款資訊 </h3>
+                                  <div className="flex justify-between items-center py-1"> <span className="text-gray-500 text-sm font-medium">專案總金額</span> <span className="font-extrabold text-2xl text-green-600 font-mono tracking-tight"> ${new Intl.NumberFormat('zh-TW').format(selectedOrder.projectAmount)} </span> </div>
+                                  {selectedOrder.paymentMethod && ( <div className="flex justify-between items-center py-2 bg-gray-50 rounded-xl px-3 border border-gray-200/50"> <span className="text-gray-500 text-xs flex items-center gap-1.5"> <CreditCard size={14}/> 付款方式 </span> <span className="font-bold text-gray-900 text-sm">{selectedOrder.paymentMethod}</span> </div> )}
+                                  <div className="flex gap-2 items-start bg-blue-50 p-3 rounded-xl border border-blue-100"> <Info size={14} className="text-blue-500 mt-0.5 flex-shrink-0"/> <p className="text-xs text-blue-700 leading-relaxed text-justify"> 此金額包含設備、標準安裝與測試服務。若有任何疑問或需調整付款方式，歡迎聯繫您的專屬顧問。 </p> </div>
+                              </div>
+                          )}
+                          
+                          {!isCompleted && (
+                              <div className="bg-[#1E293B] rounded-2xl p-5 border border-gray-700 text-center animate-fade-in-up delay-1000 mt-6">
+                                  <p className="text-xs text-gray-400 mb-3">請提前下載 Tesla App 以完成帳號綁定</p>
+                                  <div className="flex justify-center gap-3">
+                                      <a href="https://apps.apple.com/tw/app/tesla/id582007913" target="_blank" className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs text-white transition flex items-center justify-center gap-2 border border-white/10"> <span className="font-bold">App Store</span> </a>
+                                      <a href="https://play.google.com/store/apps/details?id=com.teslamotors.tesla&hl=zh_TW&gl=TW" target="_blank" className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs text-white transition flex items-center justify-center gap-2 border border-white/10"> <span className="font-bold">Google Play</span> </a>
+                                  </div>
+                              </div>
+                          )}
+                      </div>
+                  ) : (
+                      <div className="animate-fade-in-up duration-700 space-y-6">
+                          <div className="bg-gradient-to-br from-gray-900 to-black rounded-3xl p-8 shadow-2xl text-center text-white relative overflow-hidden border border-gray-800 animate-fade-in-up">
+                              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500"></div> <div className="absolute -top-20 -left-20 w-40 h-40 bg-green-500/20 blur-[60px] rounded-full"></div>
+                              <div className="mb-6 flex justify-center relative"> <div className="absolute inset-0 bg-green-500/20 blur-xl rounded-full"></div> <CheckCircle size={64} className="text-green-400 relative z-10" strokeWidth={1.5} /> </div>
+                              <h2 className="text-2xl font-bold mb-2 tracking-tight">工程圓滿完成</h2> <p className="text-gray-400 text-sm mb-8 leading-relaxed">感謝您選擇 {COMPANY_NAME}。<br/>您的能源自主生活正式啟動。</p>
+                              <div className="mb-8">
+                                    <p className="text-xs text-gray-500 uppercase tracking-widest mb-3">已安裝設備</p>
+                                    <div className="flex justify-center gap-2 flex-wrap items-end mb-3"> {Array.from({ length: selectedOrder.powerwallCount || 0 }).map((_, i) => ( <TeslaPowerwallGraphic key={`pw-${i}`} scale={0.5} /> ))} {Array.from({ length: selectedOrder.gatewayCount || 0 }).map((_, i) => ( <TeslaGatewayGraphic key={`gw-${i}`} scale={0.7} /> ))} </div>
+                                    {(selectedOrder.powerwallCount > 0 || selectedOrder.gatewayCount > 0) && ( <div className="inline-flex items-center gap-3 text-xs font-bold text-gray-300 bg-gray-800/50 py-1.5 px-3 rounded-full border border-gray-700"> {selectedOrder.powerwallCount > 0 && ( <span>Powerwall x {selectedOrder.powerwallCount}</span> )} {selectedOrder.powerwallCount > 0 && selectedOrder.gatewayCount > 0 && ( <span className="text-gray-600">|</span> )} {selectedOrder.gatewayCount > 0 && ( <span>Gateway x {selectedOrder.gatewayCount}</span> )} </div> )}
+                              </div>
+                              <div className="bg-gray-800/50 rounded-2xl p-5 text-left border border-gray-700/50 backdrop-blur-sm"> <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-700/50"> <User className="text-gray-500" size={16}/> <span className="font-bold text-white">{selectedOrder.clientName}</span> </div> <div className="flex items-start gap-3"> <MapPin className="text-gray-500 mt-0.5" size={16}/> <span className="text-sm text-gray-300 leading-snug">{selectedOrder.address}</span> </div> </div>
+                          </div>
+
+                          <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-2xl p-5 text-left border border-gray-700 shadow-lg animate-fade-in-up delay-200">
+                              <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2"> <Gift size={16} className="text-pink-400"/> 填寫回饋．領取好禮 </h4>
+                              <p className="text-xs text-gray-400 mb-4 leading-relaxed"> 感謝您的支持！完成以下兩項任務，我們將致贈 <span className="text-yellow-400 font-bold">7-11 City Cafe 兌換券兩張</span> 以表謝意。 </p>
+                              <div className="space-y-3">
+                                  <a href="https://forms.gle/Lv2pyTuwyxgSACr47" target="_blank" rel="noreferrer" className="flex items-center justify-between bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition group"> <span className="text-sm font-bold text-gray-200 flex items-center gap-2"> <Clipboard size={16} className="text-blue-400"/> 填寫滿意度問卷 </span> <ArrowRight size={16} className="text-gray-500 group-hover:translate-x-1 transition"/> </a>
+                                  <a href="https://reurl.cc/ZNdR0V" target="_blank" rel="noreferrer" className="flex items-center justify-between bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition group"> <span className="text-sm font-bold text-gray-200 flex items-center gap-2"> <Star size={16} className="text-yellow-400"/> 給予 Google 評論 </span> <ArrowRight size={16} className="text-gray-500 group-hover:translate-x-1 transition"/> </a>
+                              </div>
+                          </div>
+
+                          <div className="animate-pulse">
+                              <button onClick={handleReferral} className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-bold py-4 px-6 rounded-2xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2 hover:shadow-yellow-500/30"> <Gift size={20} className="animate-bounce" /> 覺得滿意嗎？推薦給好友 </button>
+                              <p className="text-center text-xs text-gray-500 mt-2">點擊按鈕即可複製推薦文案或分享</p>
+                          </div>
+
+                          <ImageGalleryBlock title="工程完工紀錄" Icon={Camera} images={selectedOrder.completionImages} onImageClick={setViewingImage} delayClass="delay-300" />
+
+                          {selectedOrder.salesName && (
+                              <div className="bg-gray-800/50 backdrop-blur-sm p-5 rounded-2xl border border-gray-700/50 shadow-sm flex items-center gap-4 animate-fade-in-up delay-400">
+                                  <div className={`w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center text-gray-300 shadow-sm border border-gray-600 shrink-0 overflow-hidden`}> 
+                                     {assignedSales && assignedSales.avatar ? (
+                                        <img src={assignedSales.avatar} alt={assignedSales.name} className="w-full h-full object-cover" />
+                                     ) : (
+                                        <Briefcase size={20} /> 
+                                     )}
+                                  </div>
+                                  <div className="flex-1"> <p className="text-xs text-blue-400 font-bold mb-0.5">專屬業務顧問</p> <h3 className="text-base font-bold text-white">{selectedOrder.salesName}</h3> {salesTeam.find(s => s.name === selectedOrder.salesName)?.phone && ( <a href={`tel:${salesTeam.find(s => s.name === selectedOrder.salesName)?.phone}`} className="text-xs text-gray-500 flex items-center gap-1 mt-1 hover:text-white transition"> <Phone size={12} /> {salesTeam.find(s => s.name === selectedOrder.salesName)?.phone} </a> )} </div>
+                                  {salesTeam.find(s => s.name === selectedOrder.salesName)?.phone && ( <a href={`tel:${salesTeam.find(s => s.name === selectedOrder.salesName)?.phone}`} className="bg-blue-600 text-white p-3 rounded-xl shadow-lg shadow-blue-900/50 active:scale-95 transition hover:bg-blue-700"> <Phone size={20} /> </a> )}
+                              </div>
+                          )}
+
+                          <SystemCoreConfigBlock />
+                          <InstallationDetailsBlock selectedOrder={selectedOrder} />
+
+                          <div className="animate-fade-in-up delay-700 mt-4">
+                              <TechnicianCard orderTechs={selectedOrder.technicians} allTechs={technicians} isDarkMode={true} />
+                          </div>
+
+                          <ImageGalleryBlock title="原始規劃圖面" Icon={ImageIcon} images={selectedOrder.planningImages} onImageClick={setViewingImage} delayClass="delay-800 mt-4" />
+                      </div>
+                  )}
+                </ErrorBoundary>
+                <CompanyFooter darkMode={true} logo={companyBranding.logo} />
+           </div>
+        </div>
+      );
+  }
+
+  // 2. Login
+  if (view === 'login') return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <DialogModal config={modalConfig} onClose={()=>setModalConfig(null)} />
+         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
+            <div className="mb-6 flex justify-center">
+                {companyBranding.logo ? (
+                    <img src={companyBranding.logo} alt={COMPANY_NAME} className="h-24 object-contain mb-4" />
+                ) : (
+                    <div className="p-4 bg-blue-50 rounded-full"><Lock size={32} className="text-blue-600"/></div>
+                )}
+            </div>
+            {!companyBranding.logo && <h1 className="text-2xl font-bold mb-2 text-gray-800">{COMPANY_NAME}</h1>}
+            <p className="text-sm text-gray-500 mb-6">請輸入管理員通行碼以登入系統</p>
+            <form onSubmit={handleLogin} className="space-y-4"><input type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} className="w-full text-center text-2xl font-bold tracking-widest p-3 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="••••" maxLength={4} inputMode="numeric" /><button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 flex items-center justify-center gap-2"><LogIn size={18}/> 登入系統</button></form><p className="mt-4 text-xs text-gray-300 font-mono">{SYSTEM_VERSION}</p>
+        </div>
+    </div>
+  );
+
+  // 3. System Settings
+  if (view === 'system-settings') return (
+    <div className="min-h-screen bg-gray-50 pb-20 font-sans text-gray-900">
+        <DialogModal config={modalConfig} onClose={()=>setModalConfig(null)} />
+        {showSuccess && <Toast message={toastMsg} onClose={()=>setShowSuccess(false)} />}
+        <header className="bg-white px-6 py-5 shadow-sm flex justify-between items-center max-w-2xl mx-auto"><h1 className="text-xl font-bold flex gap-2"><Settings/>設定</h1><button onClick={()=>setView('list')}><X/></button></header>
+        {showPermissionError && <PermissionErrorModal onClose={()=>setShowPermissionError(false)} />}
+        <main className="p-4 space-y-6 max-w-2xl mx-auto">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><ImageIcon className="text-purple-500"/> 品牌 Logo</h3>
+                        <p className="text-sm text-gray-500 mt-1">上傳公司 Logo 以提升品牌辨識度 (建議透明背景 PNG)</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center overflow-hidden relative">
+                         {companyBranding.logo ? (
+                             <img src={companyBranding.logo} alt="Current Logo" className="w-full h-full object-contain p-2" />
+                         ) : (
+                             <span className="text-xs text-gray-400">無</span>
+                         )}
+                    </div>
+                    <div className="flex-1">
+                         <input type="file" accept="image/*" onChange={handleLogoUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"/>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 relative overflow-hidden"><div className="absolute top-0 right-0 w-20 h-20 bg-blue-50 rounded-full -mr-10 -mt-10"></div><div className="relative z-10"><h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Cloud className="text-blue-500"/> 連接私人資料庫</h3><p className="text-xs text-gray-500 mt-1 mb-4">輸入您自己的 Firebase Config JSON 以獲得完整權限與資料掌控權。</p>{isCustomDB ? (<div className="p-4 bg-green-50 border border-green-200 rounded-xl mb-4"><p className="text-green-700 text-sm font-bold flex items-center gap-2"><Shield size={16}/> 目前已連接私人資料庫 ({manualConfig.projectId})</p><button onClick={handleClearCustomConfig} className="mt-3 text-xs bg-white text-red-500 border border-red-200 px-3 py-1.5 rounded-lg font-bold hover:bg-red-50 transition">重置回預設資料庫</button></div>) : (<div className="space-y-3"><textarea className="w-full p-3 bg-gray-50 border rounded-xl text-xs font-mono h-32 focus:ring-2 focus:ring-blue-500 outline-none" placeholder='{"apiKey": "...", "authDomain": "...", ...}' value={customConfigInput} onChange={(e)=>setCustomConfigInput(e.target.value)} /><button onClick={handleSaveCustomConfig} className="w-full py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700">儲存並連接</button></div>)}</div></div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100"><div className="flex justify-between items-start mb-4"><div><h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Trophy className="text-yellow-500"/> Powerwall 實績</h3><p className="text-sm text-gray-500 mt-1">設定對外顯示的累積安裝數量</p></div></div><div className="space-y-4"><div><label className="block text-xs font-bold text-gray-600 mb-2">目前顯示總數</label><div className="flex items-center gap-2"><input type="number" className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xl font-bold text-blue-600 outline-none focus:ring-2 focus:ring-blue-500" value={localPwCount} onChange={(e) => setLocalPwCount(e.target.value)} /><button onClick={saveCompanyStats} className="bg-blue-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-blue-700 shadow-sm flex items-center gap-1 text-sm"><Save size={16}/> 儲存</button></div><p className="text-xs text-gray-400 mt-2 flex items-center gap-1"><Zap size={12}/> 系統自動統計數量：{stats.systemTotalPW} 顆</p></div></div></div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100"><div className="flex justify-between items-start mb-4"><div><h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Database className="text-gray-500"/> 資料保全</h3><p className="text-sm text-gray-500 mt-1">匯出目前檢視的資料</p></div></div><button onClick={handleExportData} className="w-full py-3 bg-gray-50 text-gray-700 border border-gray-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition"><Download size={20} /> 匯出備份 (.json)</button><p className="text-xs text-gray-400 mt-2 text-center">建議定期備份，資料安全有保障。</p></div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border space-y-4"><h3 className="font-bold text-gray-800">資料來源模式 (僅限預設庫)</h3><div className="flex items-center justify-between"><span className="text-sm text-gray-600">{useLegacyPath ? '⚠️ 舊版資料 (Legacy)' : '✅ 安全資料 (Artifacts)'}</span><button onClick={()=>setUseLegacyPath(!useLegacyPath)} className={`w-12 h-6 rounded-full p-1 transition ${useLegacyPath?'bg-red-500':'bg-green-500'}`}><div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition ${useLegacyPath?'translate-x-6':''}`}></div></button></div><p className="text-xs text-gray-400">若使用預設資料庫且找不到舊資料，請切換此開關。</p></div>
+        </main>
+    </div>
+  );
+  
+  // 4. Create / Edit Order
+  if (view === 'create') return (
+    <div className="min-h-screen bg-gray-50 pb-20 font-sans text-gray-900">
+        <DialogModal config={modalConfig} onClose={()=>setModalConfig(null)} />
+        {showSuccess && <Toast message={toastMsg} onClose={()=>setShowSuccess(false)} />}
+        <header className="bg-white px-4 py-4 shadow-sm sticky top-0 flex items-center z-10 max-w-2xl mx-auto"><button onClick={() => setView('list')} className="p-2 -ml-2"><ChevronLeft size={24} /></button><h1 className="text-lg font-bold ml-2">{isEditing ? '修改工單' : '新增工單'}</h1></header>
+        {showPermissionError && <PermissionErrorModal onClose={()=>setShowPermissionError(false)} />}
+        <form onSubmit={handleSaveOrder} className="max-w-2xl mx-auto p-5 space-y-6">
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+                <input required className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.clientName} onChange={e=>setFormData(prev => ({...prev, clientName: e.target.value}))} placeholder="客戶姓名" />
+                <input required type="tel" className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.phone} onChange={e=>setFormData(prev => ({...prev, phone: e.target.value}))} placeholder="手機" />
+                <div className="flex gap-2">
+                    <select className="w-1/3 p-3 bg-gray-50 border rounded-xl" value={formData.city} onChange={e=>setFormData(prev => ({...prev, city: e.target.value}))}>{TAIWAN_CITIES.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                    <input className="flex-1 p-3 bg-gray-50 border rounded-xl" value={formData.address} onChange={e=>setFormData(prev => ({...prev, address: e.target.value}))} placeholder="地址" />
+                </div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+                <select className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.serviceType} onChange={e=>setFormData(prev => ({...prev, serviceType: e.target.value}))}>{SERVICE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
+                <select className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.status} onChange={e=>setFormData(prev => ({...prev, status: e.target.value}))}>{STATUS_OPTIONS.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">業務人員 (可輸入/選擇)</label>
+                        <input list="sales-list" className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.salesName} onChange={e => setFormData(prev => ({...prev, salesName: e.target.value}))} placeholder="輸入或選擇..." />
+                        <datalist id="sales-list">{salesTeam.map(s => <option key={s.id || s.name} value={s.name} />)}</datalist>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">KOL / 介紹人 (可輸入/選擇)</label>
+                        <input list="kol-list" className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.kolName} onChange={e => setFormData(prev => ({...prev, kolName: e.target.value}))} placeholder="輸入或選擇..." />
+                        <datalist id="kol-list">{kols.map(k => <option key={k.id || k.name} value={k.name} />)}</datalist>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.date} onChange={e=>setFormData(prev => ({...prev, date: e.target.value}))} /><input type="time" className="w-full p-3 bg-gray-50 border rounded-xl" value={formData.time} onChange={e=>setFormData(prev => ({...prev, time: e.target.value}))} /></div>
+                
+                <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-500">斷路器配置</label>
+                    {formData.breakers.map((b, idx) => (
+                        <div key={idx} className="flex gap-2">
+                            <select className="flex-1 p-2 border rounded-lg" value={b.type} onChange={(e) => { const n = [...formData.breakers]; n[idx].type = e.target.value; setFormData(prev => ({...prev, breakers: n})); }}>{BREAKER_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
+                            <input type="number" className="w-16 p-2 border rounded-lg text-center" value={b.count} onChange={(e) => { const n = [...formData.breakers]; n[idx].count = parseInt(e.target.value)||0; setFormData(prev => ({...prev, breakers: n})); }} />
+                            <button type="button" onClick={()=>{ const n = formData.breakers.filter((_,i)=>i!==idx); setFormData(prev => ({...prev, breakers: n})); }} className="text-red-500"><Trash2/></button>
+                        </div>
+                    ))}
+                    <button type="button" onClick={()=>setFormData(prev => ({...prev, breakers: [...prev.breakers, {type: BREAKER_TYPES[0], count: 1}]}))} className="w-full py-2 border-2 border-dashed border-gray-200 text-gray-400 rounded-lg flex justify-center items-center gap-1"><Plus size={16}/>新增斷路器</button>
+                </div>
+
+                <div><label className="text-xs font-bold text-gray-500">時間電價設定協助</label><select className="w-full p-3 mt-1 border rounded-xl" value={formData.touSetting} onChange={e=>setFormData(prev => ({...prev, touSetting: e.target.value}))}>{TOU_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+                <div><label className="text-xs font-bold text-gray-500">主線徑</label><select className="w-full p-3 mt-1 border rounded-xl" value={formData.wireGauge} onChange={e=>setFormData(prev => ({...prev, wireGauge: e.target.value}))}>{WIRE_GAUGE_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+                <div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-bold text-gray-500">GW 主線長度 (米)</label><div className="relative"><input type="text" className="w-full p-3 bg-gray-50 border rounded-xl pl-9" value={formData.gwLength} onChange={e=>setFormData(prev => ({...prev, gwLength: e.target.value}))} placeholder="例如: 15m" /><div className="absolute left-3 top-3.5 text-gray-400"><Ruler size={16}/></div></div></div><div><label className="text-xs font-bold text-gray-500">GW-PW 線路長度 (米)</label><div className="relative"><input type="text" className="w-full p-3 bg-gray-50 border rounded-xl pl-9" value={formData.pwLength} onChange={e=>setFormData(prev => ({...prev, pwLength: e.target.value}))} placeholder="例如: 5m" /><div className="absolute left-3 top-3.5 text-gray-400"><Ruler size={16}/></div></div></div></div>
+                <div>
+                    <label className="text-xs font-bold text-gray-500 mb-2 block">遮蔽物 (多選)</label>
+                    <div className="flex flex-wrap gap-2">
+                        {(dbConduits.length > 0 ? dbConduits.map(c => c.name) : DEFAULT_CONDUIT_OPTIONS).map(opt => (
+                            <button key={opt} type="button" onClick={() => toggleConduit(opt)} className={`px-3 py-1.5 rounded-lg border text-xs ${formData.conduits.includes(opt) ? 'bg-blue-50 border-blue-500 text-blue-600' : 'bg-gray-50 text-gray-600'}`}>{opt}</button>
+                        ))}
+                    </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 mb-1 block">Powerwall 數量</label>
+                        <input 
+                            type="number" 
+                            className="w-full p-3 bg-gray-50 border rounded-xl font-bold text-blue-600 text-center" 
+                            value={formData.powerwallCount} 
+                            onChange={e=>setFormData(prev => ({...prev, powerwallCount: e.target.value}))} 
+                            placeholder="0"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 mb-1 block">Gateway 數量</label>
+                        <input 
+                            type="number" 
+                            className="w-full p-3 bg-gray-50 border rounded-xl font-bold text-gray-600 text-center" 
+                            value={formData.gatewayCount} 
+                            onChange={e=>setFormData(prev => ({...prev, gatewayCount: e.target.value}))} 
+                            placeholder="0"
+                        />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1">
+                        <ImageIcon size={14}/> 系統規劃圖 / 施工圖 ({uploadedPlanningImages.length})
+                    </label>
+                    
+                    {uploadedPlanningImages.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                            {uploadedPlanningImages.map((img, idx) => (
+                                <div key={`plan-${idx}`} className="relative group aspect-square bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                                    <img src={img} alt={`Plan ${idx}`} className="w-full h-full object-cover" />
+                                    <button
+                                        type="button"
+                                        onClick={() => removeImage(idx, setUploadedPlanningImages)}
+                                        className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md hover:bg-red-600 transition z-10"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 transition cursor-pointer relative">
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            multiple 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => handleMultipleImageUpload(e, setUploadedPlanningImages, uploadedPlanningImages)}
+                        />
+                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                            <Upload size={24} />
+                            <span className="text-xs">點擊上傳多張圖片</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1">
+                        <Camera size={14}/> 安裝完工照 ({uploadedCompletionImages.length})
+                    </label>
+                    
+                    {uploadedCompletionImages.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                            {uploadedCompletionImages.map((img, idx) => (
+                                <div key={`comp-${idx}`} className="relative group aspect-square bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                                    <img src={img} alt={`Comp ${idx}`} className="w-full h-full object-cover" />
+                                    <button
+                                        type="button"
+                                        onClick={() => removeImage(idx, setUploadedCompletionImages)}
+                                        className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md hover:bg-red-600 transition z-10"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 transition cursor-pointer relative">
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            multiple 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => handleMultipleImageUpload(e, setUploadedCompletionImages, uploadedCompletionImages)}
+                        />
+                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                            <Upload size={24} />
+                            <span className="text-xs">上傳完工照片 (可多張)</span>
+                        </div>
+                    </div>
+                </div>
+                
+                {isEditing && clientSignature && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-4">
+                        <div className="flex justify-between items-center mb-2">
+                             <h4 className="text-sm font-bold text-blue-800 flex items-center gap-2">
+                                <PenTool size={16}/> 客戶已簽署
+                             </h4>
+                             <span className="text-[10px] text-blue-600 bg-white px-2 py-1 rounded-full border border-blue-100">
+                                已存檔
+                             </span>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-blue-100 mb-3">
+                            <img src={clientSignature} alt="Client Signature" className="max-h-20 mx-auto" />
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={handleDeleteSignature}
+                            className="w-full py-2 bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-200 flex items-center justify-center gap-1 transition"
+                        >
+                            <Trash2 size={14} /> 刪除簽名 (讓客戶重簽)
+                        </button>
+                    </div>
+                )}
+
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 space-y-3"><label className="text-xs font-bold text-gray-500 flex items-center gap-1"><DollarSign size={14}/> 款項資訊</label><div className="grid grid-cols-2 gap-3"><div><label className="text-[10px] text-gray-400 block mb-1">工程總款</label><input type="number" className="w-full p-2 bg-white border rounded-lg font-mono text-sm" value={formData.projectAmount} onChange={e=>setFormData(prev => ({...prev, projectAmount: e.target.value}))} placeholder="0" /></div><div><label className="text-[10px] text-gray-400 block mb-1">已收金額</label><input type="number" className="w-full p-2 bg-white border rounded-lg font-mono text-sm" value={formData.paidAmount} onChange={e=>setFormData(prev => ({...prev, paidAmount: e.target.value}))} placeholder="0" /></div></div><div><label className="text-[10px] text-gray-400 block mb-1">付款方式</label><select className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.paymentMethod} onChange={e=>setFormData(prev => ({...prev, paymentMethod: e.target.value}))}>{PAYMENT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div><div className="text-right text-xs"><span className="text-gray-400">未收餘額: </span><span className="font-bold text-red-500 font-mono">${new Intl.NumberFormat('zh-TW').format((parseInt(formData.projectAmount)||0) - (parseInt(formData.paidAmount)||0))}</span></div></div>
+                <div><div className="flex justify-between items-center mb-2"><label className="block text-sm font-medium text-gray-700">指派技師 (可多選)</label><input type="text" placeholder="搜尋技師..." className="text-xs p-1 border rounded bg-gray-50" value={techSearch} onChange={(e) => setTechSearch(e.target.value)} /></div><div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">{technicians.filter(t => t.name.includes(techSearch)).map(tech => { const isSelected = formData.technicians.some(t => t.name === tech.name); return ( <button key={tech.id} type="button" onClick={() => toggleTechnician(tech)} className={`p-3 rounded-xl text-sm font-medium border transition text-left flex items-center justify-between ${isSelected ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-200 text-gray-600'}`}>{tech.name}{isSelected && <CheckCircle size={16} className="text-blue-500" />}</button> ); })}</div></div>
+                <div><label className="text-xs font-bold text-gray-500">保固起始日 (完工後填寫)</label><input type="date" className="w-full p-3 bg-white border rounded-xl mt-1" value={formData.warrantyStartDate} onChange={e=>setFormData(prev => ({...prev, warrantyStartDate: e.target.value}))} /></div>
+                <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-24" value={formData.notes} onChange={e => setFormData(prev => ({...prev, notes: e.target.value}))} placeholder="備註 (選填)" />
+            </div>
+            <button type="submit" disabled={isProcessing} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 disabled:opacity-50">{isProcessing ? <Loader2 className="animate-spin"/> : <Save/>} {isEditing?'儲存變更':'建立工單'}</button>
+        </form>
+    </div>
+  );
+
+  // 5. Manage Team
+  if (view === 'manage-team') return (
+    <div className="min-h-screen bg-gray-50 pb-20 font-sans text-gray-900">
+        <DialogModal config={modalConfig} onClose={()=>setModalConfig(null)} />
+        {showSuccess && <Toast message={toastMsg} onClose={()=>setShowSuccess(false)} />}
+        <header className="bg-white px-6 py-5 shadow-sm sticky top-0 z-10 flex justify-between items-center max-w-2xl mx-auto">
+            <h1 className="text-xl font-bold flex items-center gap-2"><UserCog /> 團隊管理</h1>
+            <div className="flex gap-2">
+                <button onClick={handleLogout} className="bg-red-50 text-red-500 p-2 rounded-full hover:bg-red-100" title="登出"><LogOut size={24} /></button>
+                <button onClick={() => setView('list')} className="bg-gray-100 text-gray-600 p-2 rounded-full hover:bg-gray-200"><X size={24} /></button>
+            </div>
+        </header>
+        <main className="max-w-2xl mx-auto p-4 space-y-6">
+            <div className="flex p-1 bg-gray-200 rounded-xl overflow-x-auto">
+                <button onClick={() => { setManageTab('technician'); handleResetPersonForm(); }} className={`flex-1 py-2 px-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 whitespace-nowrap ${manageTab === 'technician' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}><Wrench size={16}/> 技師</button>
+                <button onClick={() => { setManageTab('sales'); handleResetPersonForm(); }} className={`flex-1 py-2 px-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 whitespace-nowrap ${manageTab === 'sales' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}><Briefcase size={16}/> 業務</button>
+                <button onClick={() => { setManageTab('kol'); handleResetPersonForm(); }} className={`flex-1 py-2 px-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 whitespace-nowrap ${manageTab === 'kol' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}><Star size={16}/> KOL</button>
+                <button onClick={() => { setManageTab('conduit'); handleResetPersonForm(); }} className={`flex-1 py-2 px-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 whitespace-nowrap ${manageTab === 'conduit' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}><Package size={16}/> 遮蔽物</button>
+            </div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-bold text-gray-500">{editingPersonId ? `編輯${manageTab === 'conduit' ? '選項' : manageTab}` : `新增${manageTab === 'conduit' ? '選項' : manageTab}`}</h3>
+                    {editingPersonId && <button onClick={handleResetPersonForm} className="text-xs text-red-500">取消編輯</button>}
+                </div>
+                <div className="space-y-3">
+                    <div className="flex gap-2">
+                        <input className="flex-1 p-3 bg-gray-50 border rounded-xl" placeholder={manageTab === 'conduit' ? "材質名稱 (例如: 304不鏽鋼管)" : "姓名"} value={personName} onChange={e => setPersonName(e.target.value)} />
+                        {manageTab !== 'kol' && manageTab !== 'conduit' && ( <input className="flex-1 p-3 bg-gray-50 border rounded-xl" placeholder="電話 (選填)" type="tel" value={personPhone} onChange={e => setPersonPhone(e.target.value)} /> )}
+                    </div>
+                    
+                    {manageTab !== 'conduit' && (
+                        <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-xl border border-dashed border-gray-300">
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center border text-gray-400 overflow-hidden relative">
+                                {personAvatar ? (
+                                    <img src={personAvatar} alt="Avatar" className="w-full h-full object-cover"/>
+                                ) : (
+                                    <User size={20} />
+                                )}
+                                {personAvatar && (
+                                    <button 
+                                        onClick={(e) => { e.preventDefault(); setPersonAvatar(null); }}
+                                        className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 hover:opacity-100 transition text-white"
+                                    >
+                                        <X size={16}/>
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex-1">
+                                <label className="block text-xs font-bold text-gray-500 mb-1">上傳大頭照 (選填)</label>
+                                <input type="file" accept="image/*" onChange={handleAvatarUpload} className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                            </div>
+                        </div>
+                    )}
+
+                    {manageTab === 'technician' && (
+                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="text-xs font-bold text-blue-600 flex items-center gap-1"><Award size={14}/> 擁有證照</label>
+                            <button onClick={() => setShowCertManager(!showCertManager)} className="text-xs bg-white border border-blue-200 text-blue-600 px-2 py-1 rounded"> {showCertManager ? '隱藏設定' : '管理證照庫'} </button>
+                        </div>
+                        {showCertManager && (
+                        <div className="mb-3 p-2 bg-white rounded-lg border border-blue-100 animate-fade-in">
+                            <div className="flex gap-2 mb-2">
+                                <input className="flex-1 text-xs p-2 border rounded" placeholder="新證照名稱" value={newCertType} onChange={e => setNewCertType(e.target.value)} />
+                                <button onClick={handleAddCertType} className="bg-blue-600 text-white text-xs px-3 rounded">新增</button>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                                {certTypes.map(c => ( <span key={c.id} className="text-[10px] bg-gray-100 px-2 py-1 rounded flex items-center gap-1"> {c.name} <button onClick={() => handleDeleteCertType(c.id)}><X size={10} /></button> </span> ))}
+                                <button onClick={handleImportDefaultCerts} className="text-[10px] text-blue-500 underline" disabled={isProcessing}>{isProcessing ? '匯入中...' : '匯入預設證照庫'}</button>
+                            </div>
+                        </div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                            {certTypes.length > 0 ? certTypes.map(c => ( <button key={c.id} onClick={() => togglePersonCert(c.name)} className={`px-3 py-1.5 rounded-full text-xs transition border ${personCerts.includes(c.name) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200'}`} > {c.name} </button> )) : <span className="text-xs text-gray-400">尚無證照資料，請先管理證照庫。</span>}
+                        </div>
+                    </div>
+                    )}
+                    <button onClick={handleSavePerson} disabled={isProcessing} className="w-full bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50"> {isProcessing ? <Loader2 className="animate-spin" size={18}/> : (editingPersonId ? <Save size={18}/> : <Plus size={18}/>)} {editingPersonId ? '儲存修改' : '新增'} </button>
+                </div>
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+                    <span className="font-bold text-gray-700">目前名單 ({ (manageTab === 'technician' ? technicians : (manageTab === 'sales' ? salesTeam : (manageTab === 'conduit' ? dbConduits : kols))).length }筆)</span>
+                    <button onClick={handleImportDefault} disabled={isProcessing} className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-lg hover:bg-green-200 transition"> {isProcessing ? '處理中...' : '匯入預設名單'} </button>
+                </div>
+                <div> 
+                    {(manageTab === 'technician' ? technicians : (manageTab === 'sales' ? salesTeam : (manageTab === 'conduit' ? dbConduits : kols))).map((person) => ( 
+                    <div key={person.id} className="p-4 border-b last:border-0 hover:bg-gray-50"> 
+                        <div className="flex justify-between items-start"> 
+                            <div className="flex items-center gap-3"> 
+                                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold overflow-hidden border border-blue-100">
+                                    {person.avatar ? (
+                                        <img src={person.avatar} alt={person.name} className="w-full h-full object-cover"/>
+                                    ) : (
+                                        person.name ? person.name[0] : "?"
+                                    )}
+                                </div> 
+                                <div> <p className="font-bold text-gray-900 flex items-center gap-2"> {person.name} {person.certs && person.certs.length > 0 && ( <span className="bg-yellow-100 text-yellow-700 text-[10px] px-1.5 py-0.5 rounded-full flex items-center"> <Award size={10} className="mr-0.5"/> {person.certs.length} </span> )} </p> {person.phone && <p className="text-xs text-gray-500">{person.phone}</p>} </div> 
+                            </div> 
+                            <div className="flex gap-2"> 
+                                <button onClick={() => handleStartEditPerson(person)} className="p-2 text-gray-400 hover:text-blue-500 rounded-full hover:bg-blue-50 transition"> <Edit2 size={18} /> </button> 
+                                <button onClick={() => handleDeletePerson(person.id)} className="p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 transition"> <Trash2 size={18} /> </button> 
+                            </div> 
+                        </div> 
+                    </div> ))} 
+                </div>
+            </div>
+        </main>
+    </div>
+  );
+
+  // 6. Stats
+  if (view === 'stats') return (
+    <div className="min-h-screen bg-gray-50 pb-20 font-sans text-gray-900">
+        <header className="bg-white px-6 py-5 shadow-sm sticky top-0 z-10 flex justify-between items-center max-w-2xl mx-auto">
+            <div><h1 className="text-xl font-bold">數據統計</h1><div className="flex items-center gap-2 mt-1"><span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">統計範圍</span><input type="month" value={statMonth} onChange={(e) => setStatMonth(e.target.value)} className="text-lg font-bold text-blue-600 bg-transparent border-none outline-none cursor-pointer hover:bg-blue-50 rounded px-1"/></div></div>
+            <div className="flex gap-2"><button onClick={handleLogout} className="bg-red-50 text-red-500 p-2 rounded-full hover:bg-red-100" title="登出"><LogOut size={24} /></button><button onClick={() => setView('list')} className="bg-gray-100 text-gray-600 p-2 rounded-full hover:bg-gray-200"><X size={24} /></button></div>
+        </header>
+        <main className="max-w-2xl mx-auto p-4 space-y-6">
+            <div className="grid grid-cols-2 gap-4"><StatCard title="總派案量" value={stats.monthlyTotal} icon={CalendarDays} colorClass="bg-gradient-to-br from-blue-500 to-blue-700" /><StatCard title="總場勘數" value={stats.totalSurveyCount} icon={Calendar} colorClass="bg-gradient-to-br from-purple-500 to-purple-700" /></div>
+            
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-red-100">
+                <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100">
+                    <Map className="text-red-600" size={24} />
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">待場勘熱點分析</h2>
+                        <p className="text-xs text-gray-400">目前「待場勘/已派場勘」的業務需求熱區</p>
+                    </div>
+                </div>
+                
+                {stats.surveyRegionalStats.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-6">
+                        {stats.surveyRegionalStats.map((regionGroup, idx) => (
+                            <div key={regionGroup.region} className="border border-red-50 rounded-xl p-4 bg-red-50/20">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                                        <span className={`w-2 h-2 rounded-full ${['bg-red-500','bg-orange-500','bg-yellow-500','bg-rose-500','bg-pink-500'][idx%5]}`}></span>
+                                        {regionGroup.region} <span className="text-xs text-gray-400 font-normal">({regionGroup.total} 案)</span>
+                                    </h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {regionGroup.cityData.map((city) => (
+                                        <div key={city.name} className="flex items-center gap-3">
+                                            <span className="text-xs font-bold text-gray-600 w-16">{city.name}</span>
+                                            <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden relative">
+                                                <div 
+                                                    className={`h-full rounded-full transition-all duration-1000 ${['bg-red-500','bg-orange-500','bg-yellow-500','bg-rose-500','bg-pink-500'][idx%5]}`} 
+                                                    style={{ width: `${Math.min(100, (city.count / regionGroup.total) * 100)}%` }}
+                                                ></div>
+                                            </div>
+                                            <span className="text-xs font-bold text-gray-700 w-8 text-right">{city.count}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-gray-400 text-sm">目前沒有待場勘案件</div>
+                )}
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-100">
+                <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100">
+                    <HardHat className="text-purple-600" size={24} />
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">待安裝熱點分析</h2>
+                        <p className="text-xs text-gray-400">目前「已簽約/施工中」的工程人力需求熱區</p>
+                    </div>
+                </div>
+                
+                {stats.installRegionalStats.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-6">
+                        {stats.installRegionalStats.map((regionGroup, idx) => (
+                            <div key={regionGroup.region} className="border border-purple-50 rounded-xl p-4 bg-purple-50/20">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                                        <span className={`w-2 h-2 rounded-full ${['bg-purple-500','bg-blue-500','bg-indigo-500','bg-violet-500','bg-sky-500'][idx%5]}`}></span>
+                                        {regionGroup.region} <span className="text-xs text-gray-400 font-normal">({regionGroup.total} 案)</span>
+                                    </h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {regionGroup.cityData.map((city) => (
+                                        <div key={city.name} className="flex items-center gap-3">
+                                            <span className="text-xs font-bold text-gray-600 w-16">{city.name}</span>
+                                            <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden relative">
+                                                <div 
+                                                    className={`h-full rounded-full transition-all duration-1000 ${['bg-purple-500','bg-blue-500','bg-indigo-500','bg-violet-500','bg-sky-500'][idx%5]}`} 
+                                                    style={{ width: `${Math.min(100, (city.count / regionGroup.total) * 100)}%` }}
+                                                ></div>
+                                            </div>
+                                            <span className="text-xs font-bold text-gray-700 w-8 text-right">{city.count}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-gray-400 text-sm">目前沒有待安裝案件</div>
+                )}
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"><div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-100"><DollarSign className="text-green-600" /><h2 className="text-lg font-bold text-gray-800">業績財務概況</h2></div><div className="grid grid-cols-2 gap-6 divide-x divide-gray-100"><div><p className="text-xs text-gray-400 mb-1">已確認營收 (成交)</p><div className="text-2xl font-bold text-green-600">{new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(stats.totalSalesRevenue)}</div></div><div className="pl-6"><p className="text-xs text-gray-400 mb-1">預估潛在金額 (報價中)</p><div className="text-2xl font-bold text-gray-400">{new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(stats.totalPotentialRevenue)}</div></div></div></div>
+            <div className="bg-gradient-to-br from-green-500 to-green-700 rounded-2xl p-6 text-white shadow-lg"><div className="flex items-center gap-3 mb-2"><div className="p-2 bg-white/20 rounded-lg"><CheckCircle size={24} /></div><span className="text-green-100 font-medium">本月完工 PW 總數</span></div><div className="text-5xl font-bold mt-2">{stats.totalDealPW} <span className="text-xl font-normal text-green-200">顆</span></div></div>
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"><div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-100"><Briefcase className="text-blue-600" /><h2 className="text-lg font-bold text-gray-800">業務績效排行</h2></div><div className="space-y-6">{stats.sortedSales.map((sale) => (<div key={sale.name}><div className="flex justify-between text-sm mb-1"><span className="font-bold text-gray-800">{sale.name}</span><div className="text-right"><span className="font-bold text-green-600">{new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(sale.revenue)}</span>{sale.potential > 0 && (<span className="text-xs text-gray-400 block">+ {new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(sale.potential)} (預估)</span>)}</div></div><div className="w-full bg-gray-100 rounded-full h-2.5 flex overflow-hidden"><div className="h-2.5 bg-green-500" style={{ width: `${Math.max(0, (sale.revenue / stats.maxSalesRevenue) * 100)}%` }} title="已成交"></div><div className="h-2.5 bg-gray-300" style={{ width: `${Math.max(0, (sale.potential / stats.maxSalesRevenue) * 100)}%` }} title="預估中"></div></div></div>))}</div></div>
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"><div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-100"><Star className="text-yellow-500" /><h2 className="text-lg font-bold text-gray-800">KOL 導購績效</h2></div><div className="space-y-4">{stats.sortedKols.length > 0 ? stats.sortedKols.map((kol) => (<div key={kol.name} className="mb-4"><div className="flex justify-between text-sm mb-2"><span className="font-bold text-gray-800">{kol.name}</span><div className="text-right"><span className="font-bold text-yellow-600">{new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(kol.revenue)}</span><span className="text-xs text-gray-500 block">PW 數量: {kol.pwCount}</span></div></div><div className="w-full bg-gray-100 rounded-full h-2"><div className="h-2 rounded-full bg-yellow-400" style={{ width: `${Math.max(5, (kol.revenue / stats.maxKolRevenue) * 100)}%` }}></div></div></div>)) : <p className="text-center text-gray-400 text-sm py-4">本月尚無 KOL 介紹案件</p>}</div></div>
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"><div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-100"><TrendingUp className="text-orange-500" /><h2 className="text-lg font-bold text-gray-800">技師績效 (場勘/安裝 PW)</h2></div><div className="space-y-4">{stats.sortedTechStats.map((tech) => (<div key={tech.name} className="mb-4"><div className="flex justify-between text-sm mb-2"><span className="font-bold text-gray-800">{tech.name}</span><span className="text-xs text-gray-500">成交: {tech.dealPW} 顆</span></div><div className="flex items-center gap-2 mb-1"><span className="text-xs w-8 text-gray-400">場勘</span><div className="flex-1 bg-gray-100 rounded-full h-2"><div className="h-2 rounded-full bg-blue-400" style={{ width: `${Math.max(5, (tech.surveyPW / stats.maxTechPW) * 100)}%` }}></div></div><span className="text-xs w-6 text-right">{tech.surveyPW}</span></div><div className="flex items-center gap-2"><span className="text-xs w-8 text-gray-400">安裝</span><div className="flex-1 bg-gray-100 rounded-full h-2"><div className="h-2 rounded-full bg-green-400" style={{ width: `${Math.max(5, (tech.installPW / stats.maxTechPW) * 100)}%` }}></div></div><span className="text-xs w-6 text-right">{tech.installPW}</span></div></div>))}</div></div>
+        </main>
+    </div>
+  );
+
+  // 7. Calendar
+  if (view === 'calendar') {
+     return (
+        <div className="min-h-screen bg-gray-50 pb-20 font-sans text-gray-900">
+            <header className="bg-white px-6 py-5 shadow-sm sticky top-0 z-10 flex justify-between items-center max-w-2xl mx-auto">
+                <h1 className="text-xl font-bold flex items-center gap-2"><Calendar/> 智慧排程</h1>
+                <div className="flex gap-2">
+                    <button onClick={handleLogout} className="bg-red-50 text-red-500 p-2 rounded-full hover:bg-red-100" title="登出"><LogOut size={24} /></button>
+                    <button onClick={() => setView('list')} className="bg-gray-100 text-gray-600 p-2 rounded-full hover:bg-gray-200"><X size={24} /></button>
+                </div>
+            </header>
+            <main className="max-w-2xl mx-auto p-4 space-y-6">
+                <CalendarView 
+                    orders={orders} 
+                    viewDate={calendarViewDate}
+                    setViewDateCb={setCalendarViewDate}
+                    onSelectOrder={(o) => startEdit(o)} 
+                />
+            </main>
+        </div>
+     );
+  }
+
+  // Default: List View
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20 font-sans text-gray-900">
+        <DialogModal config={modalConfig} onClose={()=>setModalConfig(null)} />
+        {showSuccess && <Toast message={toastMsg} onClose={()=>setShowSuccess(false)} />}
+        
+        <header className="bg-white px-6 py-5 shadow-sm sticky top-0 z-10 max-w-2xl mx-auto w-full">
+            <div className="flex justify-between items-center mb-4">
+                <div><h1 className="text-xl font-bold">派案管理</h1><p className="text-xs text-gray-500 flex items-center gap-1">{useLegacyPath ? <span className="text-red-500">⚠️ 舊版資料模式</span> : <span className="text-green-500">✅ 安全資料模式</span>}</p></div>
+                <div className="flex gap-2">
+                    <button onClick={() => setView('calendar')} className="bg-white border border-gray-200 text-gray-600 p-2 rounded-full shadow-sm hover:bg-gray-50" title="行事曆"><Calendar size={24} /></button>
+                    <button onClick={() => setView('system-settings')} className="bg-white border border-gray-200 text-gray-600 p-2 rounded-full shadow-sm hover:bg-gray-50" title="系統設定"><Settings size={24} /></button>
+                    <button onClick={() => setView('manage-team')} className="bg-white border border-gray-200 text-gray-600 p-2 rounded-full shadow-sm hover:bg-gray-50" title="團隊管理"><UserCog size={24} /></button>
+                    <button onClick={() => setView('stats')} className="bg-white border border-gray-200 text-gray-600 p-2 rounded-full shadow-sm hover:bg-gray-50" title="數據統計"><BarChart2 size={24} /></button>
+                    <button onClick={handleLogout} className="bg-red-50 text-red-500 p-2 rounded-full hover:bg-red-100" title="登出"><LogOut size={24} /></button>
+                    <button onClick={() => { setIsEditing(false); resetForm(); setView('create'); }} className="bg-blue-600 text-white p-2 rounded-full shadow-md hover:bg-blue-700"><Plus size={24} /></button>
+                    <button onClick={reloadData} className="bg-gray-100 text-gray-600 p-2 rounded-full shadow-sm hover:bg-gray-200" title="重新整理資料"><RefreshCw size={24} /></button>
+                </div>
+            </div>
+             
+            <div className="mb-4 relative flex gap-2">
+                <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search size={18} className="text-gray-400" /></div>
+                    <input type="text" className="block w-full pl-10 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" placeholder="搜尋..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                </div>
+                <div className="relative">
+                    <select 
+                        value={sortType}
+                        onChange={(e) => setSortType(e.target.value)}
+                        className="h-full pl-9 pr-4 bg-white border border-gray-200 rounded-xl text-sm outline-none appearance-none font-bold text-gray-600 cursor-pointer hover:bg-gray-50"
+                    >
+                        <option value="date_desc">📅 預約日期 (新→舊)</option>
+                        <option value="date_asc">📅 預約日期 (舊→新)</option>
+                        <option value="created_desc">🕒 建立日期 (新→舊)</option>
+                    </select>
+                    <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none">
+                        <ArrowUpDown size={16}/>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-2 mb-2">
+                 <DashboardCard title="待場勘" count={dashboardCounts.surveyPending} color="#EF4444" icon={MapPin} onClick={() => setFilterStatus('survey_pending')} isActive={filterStatus === 'survey_pending'} />
+                 <DashboardCard title="已報價" count={dashboardCounts.quoteDone} color="#3B82F6" icon={FileText} onClick={() => setFilterStatus('quote_done')} isActive={filterStatus === 'quote_done'} />
+                 <DashboardCard title="待安裝" count={dashboardCounts.installPending} color="#8B5CF6" icon={Wrench} onClick={() => setFilterStatus('install_pending')} isActive={filterStatus === 'install_pending'} />
+                 <DashboardCard title="已完工" count={dashboardCounts.installDone} color="#10B981" icon={CheckCircle} onClick={() => setFilterStatus('install_done')} isActive={filterStatus === 'install_done'} />
+            </div>
+            <button onClick={() => setFilterStatus('all')} className={`w-full py-2 rounded-lg text-sm font-bold mb-4 transition ${filterStatus === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500'}`}>顯示全部</button>
+        </header>
+
+        <main className="max-w-2xl mx-auto p-4 space-y-4">
+          <ErrorBoundary>
+          {filteredOrders.map((order) => (
+              <OrderCard 
+                  key={order.id} 
+                  order={order} 
+                  onDelete={handleDeleteOrder} 
+                  onEdit={startEdit}
+                  onPreview={(o, completed) => { setSelectedOrder(o); setClientMode(completed ? 'warranty' : 'standard'); setView('client-view'); setViewingImage(null); }}
+                  onShareLine={shareViaLine}
+                  onCopy={copyContent}
+                  onShareSMS={shareViaSMS}
+                  onCopyWarranty={copyWarrantyLink}
+              />
+          ))}
+          </ErrorBoundary>
+        </main>
+        <CompanyFooter logo={companyBranding.logo} />
+    </div>
+  );
+}
